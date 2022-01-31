@@ -174,7 +174,6 @@ public class MainScript : MonoBehaviour
         } else {
             recursiveChangeColor(parts[currentPart],  UnityEngine.Color.grey);
 
-            // parts[currentPart].transform.GetChild(0).GetComponent<MeshRenderer>().material.color = UnityEngine.Color.grey;
             reset();
             currentPart = -1;
         }
@@ -188,17 +187,12 @@ public class MainScript : MonoBehaviour
         cam.transform.position = camInitPos;
     }
 
-    // Main algorithmz
+    // Main algorithm
     private Vector3 findCamPos(){
-        // Debug.Log("WTF-1");
 
         List<Vector3> positions = new List<Vector3>();
 
-        // Vector3 objectPos = parts[currentPart].transform.position;
         Vector3 objectPos = this.objectCentres[currentPart];
-
-        // int hits = 0;
-        // int notHits = 0;
 
         RaycastHit hit;
         RaycastHit[] hitsIn;
@@ -208,50 +202,39 @@ public class MainScript : MonoBehaviour
             if (Physics.Raycast(objectPos, direction, out hit, maxDist)){
                 // Debug.Log("Hit: " + hit.distance.ToString());
                 if (hit.distance > individualMinDists[currentPart]){
-                    Vector3 camPos = objectPos + direction * (hit.distance - 1.05f * this.minDist);
+                    Vector3 camPos = objectPos + direction * (hit.distance - 1.05f * this.minDist); // TODO: Fix hardcoding
                     if (this.validateVisibility(camPos, objectPos, this.vertexSamples[currentPart])) {
                         // Vector3 camPos = objectPos + direction * (hit.distance - 1.05f * this.minDist);
                         float dist = hit.distance - 0.1f;
-                        hitsIn = Physics.RaycastAll(camPos, -direction, dist); // TODO: May be to fickle. Maybe just straight up from cam and to cam?
+                        hitsIn = Physics.RaycastAll(camPos, -direction, dist); // TODO: May be too fickle. Maybe just straight up from cam and to cam?
                         hitsOut = Physics.RaycastAll(objectPos, direction, dist);
-                        Debug.Log("Hits In: " + hitsIn.Length.ToString() + ",  Hits Out: " + hitsOut.Length.ToString());
+                        // Debug.Log("Hits In: " + hitsIn.Length.ToString() + ",  Hits Out: " + hitsOut.Length.ToString());
                         if (hitsIn.Length == hitsOut.Length){
-                            positions.Add(camPos); // TODO: Fix hardcoding
+                            positions.Add(camPos); 
                         } else {
                             Debug.Log("Found Inside Mesh");
                         }
-
                     }
                 }
-                // hits++;
-                // if (this.visualDebug){
-                //     createSquare(objectPos + direction * hit.distance, this.colArray[currentPart % this.colArray.Length]);
-                // }
 
-            } else {
-                // Debug.Log("No hit");
+            } else {  // Else-if statement isntead?
                 if (this.validateVisibility(objectPos + direction * maxDist, objectPos, this.vertexSamples[currentPart])) {
                     positions.Add(objectPos + direction * maxDist);
                 }
-                // notHits++;
             }
         }
 
-
         int[] collisions = new int[positions.Count];
-        // Debug.Log("WTF0");
 
         for(int i = 0; i < positions.Count; i++){
             int colls = 0;
-            // Vector3 camToObj = objectPos - positions[i];
-            // float camDist = camToObj.magnitude;
-            // Debug.Log("WTF1");
-            // float dist = camToObj.magnitude;
+
             if(this.visualDebug){
                 createSphere(positions[i], this.colArray[currentPart % this.colArray.Length], scale: 0.05f);
             }
+
             for(int j = 0; j < this.vertexSamples[currentPart].Length; j++){
-                // Debug.Log("WTF2");
+
                 Vector3 camCentreToVertex = this.vertexSamples[currentPart][j] - positions[i];
                 float distToVertex = camCentreToVertex.magnitude;
                 if (Physics.Raycast(positions[i], camCentreToVertex, out hit, distToVertex)){
@@ -277,9 +260,7 @@ public class MainScript : MonoBehaviour
                 createSquare(vertexSamples[currentPart][j], this.colArray[currentPart % this.colArray.Length]);     
             }
         }
-        Debug.Log("Collisions:" + arrayToString(collisions));
-        // Debug.Log("WTF4");
-
+        // Debug.Log("Collisions:" + arrayToString(collisions));
 
         int prunedPosCount = positionsArray.Length;
 
@@ -300,11 +281,8 @@ public class MainScript : MonoBehaviour
                 newPosArray[i] = positionsArray[i];
             }
             positionsArray = newPosArray;
-            // positions = positions.GetRange(0, prunedPosCount);
         }
 
-
-        // Debug.Log("1");
 
         float[] distScores = new float[prunedPosCount];
         float[] angleScores = new float[prunedPosCount];
@@ -333,19 +311,13 @@ public class MainScript : MonoBehaviour
                 avgSpred += Vector3.Angle(objectPos - scaledCamPos, this.vertexSamples[this.currentPart][j] - scaledCamPos);
             }
 
-            // Debug.Log("6 " + i.ToString());
-
             avgSpred = avgSpred / this.vertexSamples[this.currentPart].Length;
             spreadScores[i] = (1f - avgSpred / 60f);
             
-            // Debug.Log("7 " + i.ToString());
-
             visibilityScores[i] = ((float) collisions[i] / (float) this.vertexSamples[this.currentPart].Length); 
             Debug.Log("Colls: " + ((float) collisions[i]).ToString());
             Debug.Log("sampleSize: " + (((float) this.vertexSamples[this.currentPart].Length)).ToString());
 
-            // fullScores[i] = distScores[i] + angleScores[i] + spreadScores[i] + visibilityScores[i];
-            // Debug.Log("8 " + i.ToString());
         }
 
         this.normalizeArray(distScores);
@@ -362,16 +334,7 @@ public class MainScript : MonoBehaviour
         }
 
 
-        // Debug.Log("WTF7");
-
-
-        // Debug.Log("Before:" + arrayToString(positionsArray));
-        
-        // positionsArray = positions.ToArray();  
         Array.Sort(fullScores, positionsArray);
-
-        // Debug.Log("After:" + arrayToString(positionsArray));
-
 
         Debug.Log("distScores:" + arrayToString(distScores));
         Debug.Log("angleScores:" + arrayToString(angleScores));
@@ -380,8 +343,6 @@ public class MainScript : MonoBehaviour
         Debug.Log("Full:" + arrayToString(fullScores));
 
         
-
-        // Debug.Log("WTF1");
         this.lastCamPositions = positionsArray;
         this.currentPosIndex = 0;
         if (positions.Count > 0 ) {
@@ -394,27 +355,9 @@ public class MainScript : MonoBehaviour
             return positionsArray[0];
         } else {
             
-            // Debug.Log("WTF2");
             return cam.transform.position;
         }
     }
-
-    private List<Vector3> fibSphereSample(int n=25){
-
-        List<Vector3> points = new List<Vector3>();
-        
-        for(int i = 0; i < n; i++){
-            float j = i + 0.5f;
-            float phi = Mathf.Acos((1 - 2 * j / n));
-            // float theta = 3.1415f * (1f + Mathf.Sqrt(5f)) * j;
-            float theta = 10.1664f * j;  // precompute to (extremely slightly) lower computational load
-            points.Add(new Vector3(Mathf.Cos(theta) * Mathf.Sin(phi), 
-                                   Mathf.Sin(theta) * Mathf.Sin(phi),
-                                   Mathf.Cos(phi)));
-        }
-
-        return points;
-    } 
 
     private bool validateVisibility(Vector3 camPos, Vector3 objCentre, Vector3[] vertices){
         
@@ -503,253 +446,59 @@ public class MainScript : MonoBehaviour
         Vector3 camToCentre = objCentre - camPos;
         Vector3 direction = camToCentre/camToCentre.magnitude;
 
-        // float distToView = (camPos - objCentre).magnitude;
-
-
         return camPos + (minZ - newDist) * direction;
+    }
 
-        // Vector3 screenPos = this.dummyCam.WorldToScreenPoint(vertices[0]);
+    private List<Vector3> fibSphereSample(int n=25){
 
-        // float maxX = screenPos.x;
-        // float maxY = screenPos.y;
-        // float minX = screenPos.x;
-        // float minY = screenPos.y;
-
-        // Vector3 maxXPoint = screenPos;
-        // Vector3 maxYPoint = screenPos;
-        // Vector3 minXPoint = screenPos;
-        // Vector3 minYPoint = screenPos;
-
-        // for(int i = 1; i < vertices.Length; i++){
-        //     screenPos = this.dummyCam.WorldToScreenPoint(vertices[i]);
-        //     Debug.Log("Before: " + vertices[i].ToString() + ", After: " + screenPos.ToString());
-        //     if (maxX < screenPos.x) {
-        //         maxX = screenPos.x;
-        //         maxXPoint = vertices[i];
-        //     }
-        //     if (maxY < screenPos.y) {
-        //         maxY = screenPos.y;
-        //         maxYPoint = vertices[i];
-        //     }
-        //     if (minX > screenPos.x) {
-        //         minX = screenPos.x;
-        //         minXPoint = vertices[i];
-        //     }
-        //     if (minY > screenPos.y) {
-        //         minY = screenPos.y;
-        //         minYPoint = vertices[i];
-        //     }
-
-        // }
-
-        // Debug.Log("MaxX: " + maxXPoint.ToString());
-        // Debug.Log("MaxY: " + maxYPoint.ToString());
-        // Debug.Log("MinX: " + minXPoint.ToString());
-        // Debug.Log("MinY: " + minYPoint.ToString());
-
-        // if (this.visualDebug){
-        //     this.createSquare(maxXPoint, UnityEngine.Color.blue, scale: 0.1f);
-        //     this.createSquare(maxYPoint, UnityEngine.Color.red, scale: 0.1f);
-        //     this.createSquare(minXPoint, UnityEngine.Color.yellow, scale: 0.1f);
-        //     this.createSquare(minYPoint, UnityEngine.Color.green, scale: 0.1f);
-        //     Debug.Log("Created");
-        }
-
-    // private Vector3 adjustDistance(Vector3 camPos, Vector3 objCentre, Vector3[] vertices){
-    //     this.dummyCam.transform.position = camPos;
-    //     this.dummyCam.transform.LookAt(objCentre);
-
-    //     Vector3 screenPos = this.dummyCam.WorldToScreenPoint(vertices[0]);
-
-    //     float maxX = screenPos.x;
-    //     float maxY = screenPos.y;
-    //     float minX = screenPos.x;
-    //     float minY = screenPos.y;
-
-    //     Vector3 maxXPoint = screenPos;
-    //     Vector3 maxYPoint = screenPos;
-    //     Vector3 minXPoint = screenPos;
-    //     Vector3 minYPoint = screenPos;
-
-    //     for(int i = 1; i < vertices.Length; i++){
-    //         screenPos = this.dummyCam.WorldToScreenPoint(vertices[i]);
-    //         Debug.Log("Before: " + vertices[i].ToString() + ", After: " + screenPos.ToString());
-    //         if (maxX < screenPos.x) {
-    //             maxX = screenPos.x;
-    //             maxXPoint = vertices[i];
-    //         }
-    //         if (maxY < screenPos.y) {
-    //             maxY = screenPos.y;
-    //             maxYPoint = vertices[i];
-    //         }
-    //         if (minX > screenPos.x) {
-    //             minX = screenPos.x;
-    //             minXPoint = vertices[i];
-    //         }
-    //         if (minY > screenPos.y) {
-    //             minY = screenPos.y;
-    //             minYPoint = vertices[i];
-    //         }
-
-    //     }
-
-    //     Debug.Log("MaxX: " + maxXPoint.ToString());
-    //     Debug.Log("MaxY: " + maxYPoint.ToString());
-    //     Debug.Log("MinX: " + minXPoint.ToString());
-    //     Debug.Log("MinY: " + minYPoint.ToString());
-
-    //     if (this.visualDebug){
-    //         this.createSquare(maxXPoint, UnityEngine.Color.blue, scale: 0.1f);
-    //         this.createSquare(maxYPoint, UnityEngine.Color.red, scale: 0.1f);
-    //         this.createSquare(minXPoint, UnityEngine.Color.yellow, scale: 0.1f);
-    //         this.createSquare(minYPoint, UnityEngine.Color.green, scale: 0.1f);
-    //         Debug.Log("Created");
-    //     }
-
-
-        // Project all points onto screen plane
-        // Find min and max for x and y (4 values total)
-        // (Maybe TODO: Consider if finetuning rotation (lookAt) based on this makes sense)
-        // For each axis find the point to base zoom on (Which point is furthest from centre)
-        // Zoom cam pos based on the above found points s.t. the points are relatively close to screen edge
-
-    //     return camPos;
-    // }
-
-    private void testAdjustDistance(){
-        Vector3 camPos = this.cam.transform.position;
-        Vector3 objCentre = new Vector3(0,0,0);
-        Vector3[] vertices = new Vector3[this.dummyObjects.Count];
+        List<Vector3> points = new List<Vector3>();
         
-        for(int i = 0; i < this.dummyObjects.Count; i++){
-            objCentre = objCentre + this.dummyObjects[i].transform.position;
-            vertices[i] = this.dummyObjects[i].transform.position;
+        for(int i = 0; i < n; i++){
+            float j = i + 0.5f;
+            float phi = Mathf.Acos((1 - 2 * j / n));
+            // float theta = 3.1415f * (1f + Mathf.Sqrt(5f)) * j;
+            float theta = 10.1664f * j;  // precompute to (extremely slightly) lower computational load
+            points.Add(new Vector3(Mathf.Cos(theta) * Mathf.Sin(phi), 
+                                   Mathf.Sin(theta) * Mathf.Sin(phi),
+                                   Mathf.Cos(phi)));
         }
 
-        objCentre = objCentre / this.dummyObjects.Count;
-        createSquare(objCentre, UnityEngine.Color.black, scale: 0.1f);
+        return points;
+    } 
 
-        this.cam.transform.position = adjustDistance(camPos, objCentre, vertices);
-        this.cam.transform.LookAt(objCentre);
-
-        // zoome ind på test-objecter
-    }
-
-    private void setUpTestAdjustDistance(){
-        // Flytte camera til test-position
-        this.cam.transform.position = this.dummyCam.transform.position;
-        this.cam.transform.rotation = this.dummyCam.transform.rotation;
-    }
-
+    // Selection sampling vertices
     private (List<Vector3[]>, List<Vector3>) sampleVerticePoints(int samples=10){
 
-        // Mesh m;
         Vector3[] vertices;
-        // List<Matrix4x4> localToWorldTransforms;
         System.Random rand = new System.Random();
         List<Vector3[]> vertexSamples = new List<Vector3[]>();
         List<Vector3> meshCentres = new List<Vector3>();
         for(int i = 0; i < parts.Count; i++){
-            Debug.Log("Starting " + i.ToString());
-            // m = ((MeshFilter) parts[i].GetComponent("MeshFilter")).mesh;
-            // m = ((MeshFilter) parts[i].transform.Find("default").gameObject.GetComponent("MeshFilter")).mesh;
-            // vertices = m.vertices;
-            // (vertices, localToWorldTransforms) = recursiveGetVertices2(parts[i].transform, new List<Vector3[]>(), new List<Matrix4x4>());
-            vertices = recursiveGetVertices(parts[i].transform);
-            // int vertexCount = 0;
-            // foreach(Vector3[] v in vertices){
-            //     vertexCount += v.Length;
-            // }
-            int vertexCount = vertices.Length;
-            Debug.Log("Vertice length: " + vertexCount.ToString());
-            // Matrix4x4 localToWorld = parts[i].transform.localToWorldMatrix;
-            
-            int sampleSize = vertexCount <= samples ? vertexCount : samples;
-            Vector3[] sample = new Vector3[samples];
-            int picked = 0;
-            int n = vertexCount; // TODO: Fix having two variables for one value
-            // int[] indecies = new int[sampleSize];
 
-            // int j = 0;
-            // // int alreadyChecked = 0;
-            // // Debug.Log("i: " + i.ToString() + ", sampleSize: " +  sampleSize.ToString() + ", n: " + n.ToString());
-            // for(int k = 0; k < vertices.Count; k++){
-            //     Matrix4x4 localToWorld = localToWorldTransforms[k];
-            //     Vector3[] thisTransVertices = vertices[k];
-                
-            //     for(int t = 0; t < thisTransVertices.Length; t++){
-            //         double r = rand.NextDouble(); 
-            //         if(r < ((double)(sampleSize - picked)/(double)(n - j))){
-            //             // Debug.Log("i: " + i.ToString() + 
-            //             //           ", ss: " +  sampleSize.ToString() + 
-            //             //           ", n: " + n.ToString() + 
-            //             //           ", j: " + j.ToString() +  
-            //             //           ", k: " + k.ToString() + 
-            //             //           ", t: " + t.ToString() + 
-            //             //         //   ", alreadyChecked: " + alreadyChecked.ToString() + 
-            //             //           ", picked: " + picked.ToString() + 
-            //             //         //   ", index: " + (j - alreadyChecked).ToString() +
-            //             //           ", arrLength: " + thisTransVertices.Length.ToString());
-            //             sample[picked] = localToWorld.MultiplyPoint3x4(thisTransVertices[t]);
-            //             // indecies[picked] = j;
-            //             // Debug.Log(picked.ToString() + " " + j.ToString());
-            //             picked++;
-            //             if (picked == samples){
-            //                 break;
-            //             }
-            //         }
-            //         j++;
-            //     }
-            //     // alreadyChecked += thisTransVertices.Length;
-                
-            // }
-            // vertexSamples.Add(sample);
+            vertices = recursiveGetVertices(parts[i].transform);
+            int n = vertices.Length;
+            int sampleSize = n <= samples ? n : samples;
+            Vector3[] sample = new Vector3[samples];
+            
             Vector3 center = new Vector3(0, 0, 0);
+            int picked = 0;
 
             for (int j = 0; j < n; j++){
                 double r = rand.NextDouble(); 
-                // Debug.Log(r.ToString() + " " + ((double)(sampleSize - picked)/(double)(n - j)).ToString());
+
                 if(r < ((double)(sampleSize - picked)/(double)(n - j))){
-                    
-                    // sample[picked] = localToWorld.MultiplyPoint3x4(vertices[j]);
                     sample[picked] = vertices[j];
-                    // indecies[picked] = j;
-                    // Debug.Log(picked.ToString() + " " + j.ToString());
                     picked++;
-                    // if (picked == samples){
-                    //     break;
-                    // }
                 }
-                center += vertices[j]; // TODO: If big enough sample could just use average of samples?
+                center += vertices[j]; // TODO: If sample is big enough, could just use average of samples? (for slight performance increase)
             }
             vertexSamples.Add(sample);
             meshCentres.Add(center/vertices.Length);
 
             Debug.Log(i.ToString() + " " + vertices.Length.ToString() + " " + samples.ToString());
-            // Debug.Log(arrayToString(indecies));
         }
 
         return (vertexSamples, meshCentres);
-    }
-
-    private (List<Vector3[]>, List<Matrix4x4>) recursiveGetVertices2(Transform trans, List<Vector3[]> vertices, List<Matrix4x4> localToWorldTransforms){
-        // Vector3[][] vertices = new Vector3[trans.childCount + 1][];
-        Component mainMesh = trans.GetComponent("MeshFilter");
-
-        if (mainMesh != null){
-            vertices.Add(((MeshFilter) mainMesh).mesh.vertices);
-            localToWorldTransforms.Add(trans.localToWorldMatrix);
-        } 
-        // else {
-        //     vertices[0] = new Vector3[0];
-        //     localToWorldTransforms.Add(Matrix4x4.identity);
-        // }
-
-        for(int i = 0; i < trans.childCount; i++){
-            (vertices, localToWorldTransforms) = recursiveGetVertices2(trans.GetChild(i), vertices, localToWorldTransforms);
-        }
-
-        return (vertices, localToWorldTransforms);
     }
 
     private Vector3[] recursiveGetVertices(Transform trans){
@@ -814,7 +563,6 @@ public class MainScript : MonoBehaviour
         }
     }
 
-
     public void normalizeArray(float[] arr){
 
         float minVal = float.MaxValue;
@@ -829,7 +577,7 @@ public class MainScript : MonoBehaviour
             }
         } 
         if (maxVal == minVal){
-            maxVal += 1; // hack to single value arrays return 0 for all values instead of NaN
+            maxVal += 1; // hack s.t. single value arrays return 0 for all values instead of NaN
         }
 
         for(int i = 0; i < arr.Length; i++){
@@ -837,11 +585,38 @@ public class MainScript : MonoBehaviour
         }
     }
 
+    // Following functions are only for testing and not important for main functionality.
+
     public string arrayToString<T>(T[] arr){
 		string res = string.Join(" , ", arr);
 		return "[" + res + "]";
 	}
 
+    private void testAdjustDistance(){
+        Vector3 camPos = this.cam.transform.position;
+        Vector3 objCentre = new Vector3(0,0,0);
+        Vector3[] vertices = new Vector3[this.dummyObjects.Count];
+        
+        for(int i = 0; i < this.dummyObjects.Count; i++){
+            objCentre = objCentre + this.dummyObjects[i].transform.position;
+            vertices[i] = this.dummyObjects[i].transform.position;
+        }
+
+        objCentre = objCentre / this.dummyObjects.Count;
+        createSquare(objCentre, UnityEngine.Color.black, scale: 0.1f);
+
+        this.cam.transform.position = adjustDistance(camPos, objCentre, vertices);
+        this.cam.transform.LookAt(objCentre);
+
+    }
+
+    private void setUpTestAdjustDistance(){
+        // Flytte camera til test-position
+        this.cam.transform.position = this.dummyCam.transform.position;
+        this.cam.transform.rotation = this.dummyCam.transform.rotation;
+    }
+
+    // Debugging functions to visualise raycast and vertices
     private void createSphere(Vector3 pos, UnityEngine.Color col, float scale=0.02f){
         GameObject g = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         g.transform.position = pos;
