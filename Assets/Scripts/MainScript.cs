@@ -20,6 +20,7 @@ public class MainScript : MonoBehaviour
     private List<Vector3> directionsReduced;
     private List<Vector3[]> vertexSamples;
     private List<Vector3> objectCentres;
+    private Vector3 sceneCentre;
     private int currentPart = -1;
     
     private UnityEngine.Color[] colArray;
@@ -53,11 +54,20 @@ public class MainScript : MonoBehaviour
     private bool computeCamPos = true; 
     
     [SerializeField]
-    private float fovFactor = .9f;
+    private float fovFactor = .75f;
 
     private float[] individualMinDists;
 
+    [SerializeField]
+    private Camera dummyCam;
 
+    [SerializeField]
+    int clipDetectionResolutionX = 0;
+    [SerializeField]
+    int clipDetectionResolutionY = 0;
+
+    float clipPlaneX;
+    float clipPlaneY;
     // For Debugging
     private Vector3[] lastCamPositions;
 
@@ -66,8 +76,17 @@ public class MainScript : MonoBehaviour
     [SerializeField]
     private List<GameObject> dummyObjects;
 
-    [SerializeField]
-    private Camera dummyCam;
+
+    // RaycastHit boxHit;
+    // bool boxWasHit = false;
+    // float maxBoxDistance;
+    // Vector3 camPosForBoxHit;
+    // Quaternion camRotForBoxHit;
+    // Vector3 boxHitDirection;
+    // Vector3 boxSize;
+    
+
+    // TODO NEXT: Score based on distance compared to optimal distance (in adjust distance method)
 
 
     // Start is called before the first frame update
@@ -78,7 +97,7 @@ public class MainScript : MonoBehaviour
         }
         this.directions = fibSphereSample(n: sphereSampleSize);
         this.directionsReduced = fibSphereSample(n: 15); // TODO: Fix Hardcoding
-        (this.vertexSamples, this.objectCentres) = sampleVerticePoints(samples: vertexSampleSize);
+        (this.vertexSamples, this.objectCentres, this.sceneCentre) = sampleVerticePoints(samples: vertexSampleSize);
         this.camInitPos = cam.transform.position;
         this.camInitRot = cam.transform.rotation;
         this.colArray = new UnityEngine.Color[8] {UnityEngine.Color.black, 
@@ -106,6 +125,7 @@ public class MainScript : MonoBehaviour
         foreach (GameObject initObj in this.initParts){
             addCollidersRecursive(initObj);
         }
+        (this.clipPlaneX, this.clipPlaneY) = computeClipPlaneSizes(this.cam); 
         
     }
 
@@ -122,7 +142,7 @@ public class MainScript : MonoBehaviour
                 this.currentPosIndex++;
                 cam.transform.position = this.lastCamPositions[this.currentPosIndex];
                 cam.transform.LookAt(this.objectCentres[currentPart]);
-                Debug.Log(this.objectCentres[currentPart]);
+                // Debug.Log(this.objectCentres[currentPart]);
             }
         }
 
@@ -253,7 +273,7 @@ public class MainScript : MonoBehaviour
 
         Vector3[] positionsArray = positions.ToArray();  
         Array.Sort(collisions, positionsArray);
-        Debug.Log(arrayToString(collisions));
+        // Debug.Log(arrayToString(collisions));
         if (this.visualDebug){
             for(int j = 0; j < this.vertexSampleSize; j++){
                 // createSphere(vertexSamples[currentPart][j], this.colArray[currentPart % this.colArray.Length]);     
@@ -283,7 +303,6 @@ public class MainScript : MonoBehaviour
             positionsArray = newPosArray;
         }
 
-
         float[] distScores = new float[prunedPosCount];
         float[] angleScores = new float[prunedPosCount];
         float[] spreadScores = new float[prunedPosCount];
@@ -292,7 +311,7 @@ public class MainScript : MonoBehaviour
 
         float[] fullScores = new float[prunedPosCount];
 
-        Vector3 centre = new Vector3(0f, 0f, 0f); // TODO: Assumes item is centred in unity scene. Consider other ways. 
+        Vector3 centre = this.sceneCentre; 
 
         // TODO: Fix all hardcoding
 
@@ -315,8 +334,8 @@ public class MainScript : MonoBehaviour
             spreadScores[i] = (1f - avgSpred / 60f);
             
             visibilityScores[i] = ((float) collisions[i] / (float) this.vertexSamples[this.currentPart].Length); 
-            Debug.Log("Colls: " + ((float) collisions[i]).ToString());
-            Debug.Log("sampleSize: " + (((float) this.vertexSamples[this.currentPart].Length)).ToString());
+            // Debug.Log("Colls: " + ((float) collisions[i]).ToString());
+            // Debug.Log("sampleSize: " + (((float) this.vertexSamples[this.currentPart].Length)).ToString());
 
         }
 
@@ -336,11 +355,11 @@ public class MainScript : MonoBehaviour
 
         Array.Sort(fullScores, positionsArray);
 
-        Debug.Log("distScores:" + arrayToString(distScores));
-        Debug.Log("angleScores:" + arrayToString(angleScores));
-        Debug.Log("spreadScores:" + arrayToString(spreadScores));
-        Debug.Log("visibilityScores:" + arrayToString(visibilityScores));
-        Debug.Log("Full:" + arrayToString(fullScores));
+        // Debug.Log("distScores:" + arrayToString(distScores));
+        // Debug.Log("angleScores:" + arrayToString(angleScores));
+        // Debug.Log("spreadScores:" + arrayToString(spreadScores));
+        // Debug.Log("visibilityScores:" + arrayToString(visibilityScores));
+        // Debug.Log("Full:" + arrayToString(fullScores));
 
         
         this.lastCamPositions = positionsArray;
@@ -350,7 +369,8 @@ public class MainScript : MonoBehaviour
                 positionsArray[i] = 
                     adjustDistance(positionsArray[i], 
                                    this.objectCentres[this.currentPart], 
-                                   this.vertexSamples[this.currentPart]);
+                                   this.vertexSamples[this.currentPart],
+                                   draw: i == 0);
             }
             return positionsArray[0];
         } else {
@@ -386,7 +406,7 @@ public class MainScript : MonoBehaviour
         return true;
     }
 
-    private Vector3 adjustDistance(Vector3 camPos, Vector3 objCentre, Vector3[] vertices){
+    private Vector3 adjustDistance(Vector3 camPos, Vector3 objCentre, Vector3[] vertices, bool draw=false){
         this.dummyCam.transform.position = camPos;
         this.dummyCam.transform.LookAt(objCentre);
 
@@ -403,7 +423,7 @@ public class MainScript : MonoBehaviour
 
         for(int i = 1; i < vertices.Length; i++){
             pointLocal = worldToCam.MultiplyPoint3x4(vertices[i]);
-            Debug.Log("Before: " + vertices[i].ToString() + ", After: " + pointLocal.ToString());
+            // Debug.Log("Before: " + vertices[i].ToString() + ", After: " + pointLocal.ToString());
             if (maxX < pointLocal.x) {
                 maxX = pointLocal.x;
             }
@@ -424,7 +444,7 @@ public class MainScript : MonoBehaviour
         float newDist = 0f;
 
         float desiredYAngle = this.fovFactor * this.cam.fieldOfView/2 * 3.1415f / 180f;
-        float desiredXAngle = this.fovFactor * this.cam.fieldOfView/2 * (Screen.width/Screen.height) * 3.1415f / 180f;
+        float desiredXAngle = this.fovFactor * this.cam.fieldOfView/2 * ((float) Screen.width/(float) Screen.height) * 3.1415f / 180f;
 
         float[] desiredAngles = new float[]{desiredYAngle, desiredXAngle};
         float[,] cathetusSizes = new float[,]{{maxY, minY},{maxX, minX}};
@@ -432,7 +452,7 @@ public class MainScript : MonoBehaviour
         for(int i = 0; i < 2; i++){
             float desiredAngle = desiredAngles[i];
             for (int j = 0; j < 2; j++){
-                float dist = Mathf.Abs(cathetusSizes[i, j]) * (Mathf.Cos(desiredAngle)/Mathf.Sin(desiredAngle));
+                float dist = Mathf.Abs(cathetusSizes[i, j]) * (Mathf.Cos(desiredAngle)/Mathf.Sin(desiredAngle)); // Change to using tangent?
                 if (dist > newDist){
                     newDist = dist;
                 }
@@ -440,13 +460,94 @@ public class MainScript : MonoBehaviour
         }
 
         if (newDist < cam.nearClipPlane){
-            newDist = cam.nearClipPlane * 1.1f;
+            newDist = cam.nearClipPlane * 1.2f;
         }
 
         Vector3 camToCentre = objCentre - camPos;
         Vector3 direction = camToCentre/camToCentre.magnitude;
 
-        return camPos + (minZ - newDist) * direction;
+        // Check for collisions between near clipping plane and objects, which would indicate clipping
+
+        // float yAngle = this.cam.fieldOfView/2;
+        // float xAngle = this.cam.fieldOfView/2 * (Screen.width/Screen.height);
+
+        // float halfXBox = dummyCam.nearClipPlane * Mathf.Tan(xAngle);
+        // float halfYBox = dummyCam.nearClipPlane * Mathf.Tan(yAngle);
+
+        float xRes = this.clipDetectionResolutionX + 2f;
+        float yRes = this.clipDetectionResolutionY + 2f;
+
+        Vector3 topLeftClip = camPos + 
+                              -.5f * dummyCam.transform.right * this.clipPlaneX + 
+                               .5f * dummyCam.transform.up * this.clipPlaneY +
+                               dummyCam.transform.forward * dummyCam.nearClipPlane;
+        
+        if(draw){
+
+            // createSphere(camPos, UnityEngine.Color.black);
+            // createSquare(topLeftClip, UnityEngine.Color.red, scale: .05f);
+            Vector3 topRight = topLeftClip + dummyCam.transform.right * this.clipPlaneX;
+            // createSquare(topRight, UnityEngine.Color.green, scale: .05f);
+            Vector3 botLeft = topLeftClip - dummyCam.transform.up * this.clipPlaneY;
+            // createSquare(botLeft, UnityEngine.Color.blue, scale: .05f);
+            Vector3 botRight = topLeftClip - dummyCam.transform.up * this.clipPlaneY + dummyCam.transform.right * this.clipPlaneX;
+
+            // createSquare(botRight, UnityEngine.Color.yellow, scale: .05f);
+
+            drawLine(camPos, topLeftClip, UnityEngine.Color.red);
+            drawLine(camPos, topRight, UnityEngine.Color.green);
+            drawLine(camPos, botLeft, UnityEngine.Color.blue);
+            drawLine(camPos, botRight, UnityEngine.Color.yellow);
+        }
+        //  new Vector3(-.5f * dummyCam.transform.right * this.clipPlaneX, 
+        //                                             .5f * dummyCam.transform.up * this.clipPlaneY,
+        //                                            dummyCam.nearClipPlane);
+
+        // Debug.Log(dummyCam.transform.right.magnitude.ToString() + " " + dummyCam.transform.up.magnitude.ToString() + " " + dummyCam.transform.forward.magnitude.ToString());
+
+        // TODO: Next here. Newdist is dist from obj to new cam pos. Right now the code below assumes that it is from old cam pos to new cam pos
+        float minDist = (camPos - objCentre).magnitude - newDist;
+        float maxRayDist = minDist;
+
+        RaycastHit hitInfo;
+        bool hit;
+        for(float i = 0f; i < xRes; i++){
+            for(float j = 0f; j < yRes; j++){
+                Vector3 rayStartPos = topLeftClip + 
+                                      dummyCam.transform.right * this.clipPlaneX * (i/(xRes-1)) +
+                                      -dummyCam.transform.up * this.clipPlaneY * (j/(yRes-1));
+                hit = Physics.Raycast(rayStartPos, direction, out hitInfo, maxRayDist);
+                if (hit) {
+                    float hitDistAdjusted = hitInfo.distance - .5f * dummyCam.nearClipPlane;
+                    if (hitDistAdjusted < minDist) {
+                        Debug.Log("minDist updated " + minDist.ToString() + " -> " + (hitDistAdjusted).ToString());
+                        minDist = hitDistAdjusted;
+                    }
+                }
+                if (draw){
+                    float dist = hit ? hitInfo.distance : maxRayDist;
+                    drawLine(rayStartPos, rayStartPos + direction * dist, hit ? UnityEngine.Color.red : UnityEngine.Color.green);
+                    createSphere(rayStartPos, UnityEngine.Color.red, scale: .01f);
+                }
+                // if (hit){
+                //     Debug.Log(i.ToString() + " " + j.ToString() + " " + hit.ToString());
+                // }
+            }
+        }
+
+        return camPos + minDist * direction;
+    }
+
+    private (float, float) computeClipPlaneSizes(Camera cam){
+        Debug.Log(Screen.width.ToString() + " " + Screen.height.ToString());
+        float yAngle = cam.fieldOfView/2 * 3.1415f / 180f;
+        float xAngle = cam.fieldOfView/2 * ((float) Screen.width/(float) Screen.height)* 3.1415f / 180f;
+        Debug.Log(yAngle.ToString() + " " + xAngle.ToString() + " " + Screen.width.ToString() + " " + Screen.height.ToString());
+
+        float halfXBox = cam.nearClipPlane * Mathf.Tan(xAngle);
+        float halfYBox = cam.nearClipPlane * Mathf.Tan(yAngle);
+        Debug.Log((2f * halfXBox).ToString() + " " + (2f * halfYBox).ToString());
+        return (2f * halfXBox, 2f * halfYBox);
     }
 
     private List<Vector3> fibSphereSample(int n=25){
@@ -467,12 +568,14 @@ public class MainScript : MonoBehaviour
     } 
 
     // Selection sampling vertices
-    private (List<Vector3[]>, List<Vector3>) sampleVerticePoints(int samples=10){
+    private (List<Vector3[]>, List<Vector3>, Vector3) sampleVerticePoints(int samples=10){
 
         Vector3[] vertices;
         System.Random rand = new System.Random();
         List<Vector3[]> vertexSamples = new List<Vector3[]>();
         List<Vector3> meshCentres = new List<Vector3>();
+        Vector3 sceneCentre = new Vector3(0f, 0f, 0f);
+        int totalVerticesCount = 0;
         for(int i = 0; i < parts.Count; i++){
 
             vertices = recursiveGetVertices(parts[i].transform);
@@ -494,11 +597,13 @@ public class MainScript : MonoBehaviour
             }
             vertexSamples.Add(sample);
             meshCentres.Add(center/vertices.Length);
+            sceneCentre += center;
+            totalVerticesCount += vertices.Length;
 
-            Debug.Log(i.ToString() + " " + vertices.Length.ToString() + " " + samples.ToString());
+            // Debug.Log(i.ToString() + " " + vertices.Length.ToString() + " " + samples.ToString());
         }
 
-        return (vertexSamples, meshCentres);
+        return (vertexSamples, meshCentres, sceneCentre/totalVerticesCount);
     }
 
     private Vector3[] recursiveGetVertices(Transform trans){
@@ -651,4 +756,29 @@ public class MainScript : MonoBehaviour
         lr.SetPosition(1, end);
         // GameObject.Destroy(myLine, duration);
     } 
+
+    // void OnDrawGizmos()
+    // {
+        
+    //     // Debug.Log("OnDrawGizmmo");
+
+    //     //Check if there has been a hit yet
+    //     if (this.boxWasHit)
+    //     {
+    //         Gizmos.color = Color.red;
+    //         //Draw a Ray forward from GameObject toward the hit
+    //         Gizmos.DrawRay(this.camPosForBoxHit, this.boxHitDirection * this.boxHit.distance);
+    //         //Draw a cube that extends to where the hit exists
+    //         // Gizmos.DrawWireCube(transform.position + transform.forward * this.boxHit.distance, transform.localScale);
+    //     }
+    //     //If there hasn't been a hit yet, draw the ray at the maximum distance
+    //     else
+    //     {
+    //         Gizmos.color = Color.green;
+    //         //Draw a Ray forward from GameObject toward the maximum distance
+    //         Gizmos.DrawRay(this.camPosForBoxHit, this.boxHitDirection * this.maxBoxDistance);
+    //         //Draw a cube at the maximum distance
+    //         // Gizmos.DrawWireCube(transform.position + transform.forward * this.maxBoxDistance, transform.localScale);
+    //     }
+    // }
 }
