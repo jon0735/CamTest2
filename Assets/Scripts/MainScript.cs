@@ -2,7 +2,6 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using System;
-using System.Linq;
 
 public class MainScript : MonoBehaviour
 {
@@ -47,6 +46,11 @@ public class MainScript : MonoBehaviour
     private float spreadWeight = 1f;
     [SerializeField]
     private float visibilityWeight = 1f;
+    [SerializeField]
+    private float distToObjWeight = 1f;
+    
+    [SerializeField]
+    private float reasonAngleWeight = 1f;
 
     [SerializeField]
     private bool visualDebug = false;
@@ -73,20 +77,12 @@ public class MainScript : MonoBehaviour
 
     private int currentPosIndex;
 
+    [SerializeField] // Apparently doesn't work with list of tuples
+    private List<(Vector3, float, float)> humanUnreasonableAngles; // Vector3: Impossible/unreasonable direction, float: angle from this direction considered impossible, float: largest angle from direction considered impractical
+    
     [SerializeField]
     private List<GameObject> dummyObjects;
 
-
-    // RaycastHit boxHit;
-    // bool boxWasHit = false;
-    // float maxBoxDistance;
-    // Vector3 camPosForBoxHit;
-    // Quaternion camRotForBoxHit;
-    // Vector3 boxHitDirection;
-    // Vector3 boxSize;
-    
-
-    // TODO NEXT: Score based on distance compared to optimal distance (in adjust distance method)
 
 
     // Start is called before the first frame update
@@ -95,7 +91,14 @@ public class MainScript : MonoBehaviour
         foreach (GameObject part in this.parts){
             part.SetActive(false);
         }
-        this.directions = fibSphereSample(n: sphereSampleSize);
+
+        if (this.humanUnreasonableAngles == null){
+            this.humanUnreasonableAngles = new List<(Vector3, float, float)>();
+            this.humanUnreasonableAngles.Add((Vector3.down, 30f, 60f));
+        }
+
+        this.directions = fibSphereSample(n: sphereSampleSize, impossibleAngles: this.humanUnreasonableAngles);
+        Debug.Log(this.directions.Count);
         this.directionsReduced = fibSphereSample(n: 15); // TODO: Fix Hardcoding
         (this.vertexSamples, this.objectCentres, this.sceneCentre) = sampleVerticePoints(samples: vertexSampleSize);
         this.camInitPos = cam.transform.position;
@@ -113,12 +116,14 @@ public class MainScript : MonoBehaviour
         for (int i = 0; i < this.parts.Count; i++){
             float maxVertexDist = 0f;
             foreach(Vector3 vertex in this.vertexSamples[i]){
-                float thisVertexDist = (this.parts[i].transform.position - vertex).magnitude;
+                // float thisVertexDist = (this.parts[i].transform.position - vertex).magnitude;
+                float thisVertexDist = (this.objectCentres[i] - vertex).magnitude;
                 if (thisVertexDist > maxVertexDist){
                     maxVertexDist = thisVertexDist;
                 }
             }
-            this.individualMinDists[i] = Mathf.Max(this.cam.nearClipPlane + maxVertexDist, this.minDist);
+            Debug.Log(this.cam.nearClipPlane.ToString() + " " + maxVertexDist.ToString() + this.minDist.ToString() + " " + Mathf.Max((this.cam.nearClipPlane + maxVertexDist) * 1.2f, this.minDist).ToString());
+            this.individualMinDists[i] = Mathf.Max((this.cam.nearClipPlane + maxVertexDist) * 1.2f, this.minDist);
             addCollidersRecursive(this.parts[i]);
         }
         // Debug.Log(arrayToString(this.individualMinDists));
@@ -126,6 +131,8 @@ public class MainScript : MonoBehaviour
             addCollidersRecursive(initObj);
         }
         (this.clipPlaneX, this.clipPlaneY) = computeClipPlaneSizes(this.cam); 
+
+        
         
     }
 
@@ -207,44 +214,65 @@ public class MainScript : MonoBehaviour
         cam.transform.position = camInitPos;
     }
 
+
     // Main algorithm
     private Vector3 findCamPos(){
 
-        List<Vector3> positions = new List<Vector3>();
-
         Vector3 objectPos = this.objectCentres[currentPart];
+        Vector3[] vertices = this.vertexSamples[currentPart];
+
+        List<Vector3> positions = this.getPositionProposals();
+        
+        Vector3[] positionsArray;
+        int[] collisions;
+        (positionsArray, collisions) = this.prunePositionProposals(positions);
+        
+        float[] fullScores;
+        (fullScores, positionsArray) = computePosScores(positionsArray, collisions);
+
+        Array.Sort(fullScores, positionsArray);
+
+        this.lastCamPositions = positionsArray;
+        this.currentPosIndex = 0;
+
+        if (positions.Count > 0 ) {
+            return positionsArray[0];
+        } else {
+            Debug.Log("No Positions found");
+            return cam.transform.position;
+        }
+    }
+
+    private List<Vector3> getPositionProposals(){
+        
+        List<Vector3> positions = new List<Vector3>();
+        Vector3 objectPos = this.objectCentres[currentPart];
+        Vector3[] vertices = this.vertexSamples[currentPart];
 
         RaycastHit hit;
-        RaycastHit[] hitsIn;
-        RaycastHit[] hitsOut;
-        foreach(Vector3 direction in directions){
+        foreach(Vector3 direction in this.directions){
 
-            if (Physics.Raycast(objectPos, direction, out hit, maxDist)){
-                // Debug.Log("Hit: " + hit.distance.ToString());
-                if (hit.distance > individualMinDists[currentPart]){
-                    Vector3 camPos = objectPos + direction * (hit.distance - 1.05f * this.minDist); // TODO: Fix hardcoding
-                    if (this.validateVisibility(camPos, objectPos, this.vertexSamples[currentPart])) {
-                        // Vector3 camPos = objectPos + direction * (hit.distance - 1.05f * this.minDist);
-                        float dist = hit.distance - 0.1f;
-                        hitsIn = Physics.RaycastAll(camPos, -direction, dist); // TODO: May be too fickle. Maybe just straight up from cam and to cam?
-                        hitsOut = Physics.RaycastAll(objectPos, direction, dist);
-                        // Debug.Log("Hits In: " + hitsIn.Length.ToString() + ",  Hits Out: " + hitsOut.Length.ToString());
-                        if (hitsIn.Length == hitsOut.Length){
-                            positions.Add(camPos); 
-                        } else {
-                            Debug.Log("Found Inside Mesh");
-                        }
-                    }
-                }
+            bool wasHit = Physics.Raycast(objectPos, direction, out hit, maxDist);
+            bool usablePosBeforeHit = false; 
+            Vector3 camPos = objectPos + direction * maxDist;
 
-            } else {  // Else-if statement isntead?
-                if (this.validateVisibility(objectPos + direction * maxDist, objectPos, this.vertexSamples[currentPart])) {
-                    positions.Add(objectPos + direction * maxDist);
+            if (wasHit){
+                if (hit.distance > this.individualMinDists[currentPart]){
+                    camPos = objectPos + direction * (hit.distance - 1.05f * this.minDist); // TODO: Fix hardcoding
+                    usablePosBeforeHit = !isInSideMesh(camPos) && validateVisibility(camPos, objectPos, vertices);
                 }
+            } 
+
+            if (!wasHit || usablePosBeforeHit){
+                positions.Add(camPos);
             }
         }
+        return positions;
+    }
 
+    private (Vector3[], int[]) prunePositionProposals(List<Vector3> positions){
         int[] collisions = new int[positions.Count];
+        RaycastHit hit;
 
         for(int i = 0; i < positions.Count; i++){
             int colls = 0;
@@ -273,14 +301,11 @@ public class MainScript : MonoBehaviour
 
         Vector3[] positionsArray = positions.ToArray();  
         Array.Sort(collisions, positionsArray);
-        // Debug.Log(arrayToString(collisions));
         if (this.visualDebug){
             for(int j = 0; j < this.vertexSampleSize; j++){
-                // createSphere(vertexSamples[currentPart][j], this.colArray[currentPart % this.colArray.Length]);     
                 createSquare(vertexSamples[currentPart][j], this.colArray[currentPart % this.colArray.Length]);     
             }
         }
-        // Debug.Log("Collisions:" + arrayToString(collisions));
 
         int prunedPosCount = positionsArray.Length;
 
@@ -302,40 +327,39 @@ public class MainScript : MonoBehaviour
             }
             positionsArray = newPosArray;
         }
+        return (positionsArray, collisions);
+    }
+
+    private (float[], Vector3[]) computePosScores(Vector3[] positionsArray, int[] collisions){
+
+        Vector3 objectPos = this.objectCentres[currentPart];
+        Vector3[] vertices = this.vertexSamples[currentPart];
+        int prunedPosCount = positionsArray.Length;
 
         float[] distScores = new float[prunedPosCount];
         float[] angleScores = new float[prunedPosCount];
         float[] spreadScores = new float[prunedPosCount];
         float[] visibilityScores = new float[prunedPosCount];
-        // TODO: Add something to represent there being space around the found area
+        float[] distToObjScores = new float[prunedPosCount];
+        float[] reasonableAngleScores = new float[prunedPosCount];
+        float[] stabilityScores = new float[prunedPosCount];
+        // TODO?: Add something to represent there being space around the found area
 
-        float[] fullScores = new float[prunedPosCount];
-
+        Vector3[] newPositionsArray = new Vector3[prunedPosCount];
         Vector3 centre = this.sceneCentre; 
+        float[] fullScores = new float[prunedPosCount];
 
         // TODO: Fix all hardcoding
 
         for(int i = 0; i < prunedPosCount; i++){
 
-            distScores[i] = Vector3.Distance(positionsArray[i], cam.transform.position) / (2f * this.maxDist);
             angleScores[i] = Vector3.Angle(objectPos - positionsArray[i], centre - positionsArray[i]) / 180f;
-            
-            float avgSpred = 0f;
-            Vector3 camToObj = objectPos - positionsArray[i];
-            float dist = camToObj.magnitude;
-            Vector3 scaledCamPos = positionsArray[i] + (camToObj * (1 - 1/dist));
-            for(int j = 0; j < this.vertexSamples[this.currentPart].Length; j++){ // TODO: Handle distance to object
-                Vector3 test = positionsArray[i];
-
-                avgSpred += Vector3.Angle(objectPos - scaledCamPos, this.vertexSamples[this.currentPart][j] - scaledCamPos);
-            }
-
-            avgSpred = avgSpred / this.vertexSamples[this.currentPart].Length;
-            spreadScores[i] = (1f - avgSpred / 60f);
-            
-            visibilityScores[i] = ((float) collisions[i] / (float) this.vertexSamples[this.currentPart].Length); 
-            // Debug.Log("Colls: " + ((float) collisions[i]).ToString());
-            // Debug.Log("sampleSize: " + (((float) this.vertexSamples[this.currentPart].Length)).ToString());
+            spreadScores[i] = computeSpreadScore(positionsArray[i], objectPos);
+            visibilityScores[i] = (float) collisions[i];
+            (newPositionsArray[i] , distToObjScores[i]) = adjustDistance(positionsArray[i], objectPos, vertices, this.individualMinDists[currentPart]);
+            distScores[i] = Vector3.Distance(positionsArray[i], this.cam.transform.position) / (2f * this.maxDist);
+            reasonableAngleScores[i] = computeHumanAngleScore(positionsArray[i]);
+            stabilityScores[i] = computeStabilityScore(positionsArray[i], objectPos);
 
         }
 
@@ -343,42 +367,58 @@ public class MainScript : MonoBehaviour
         this.normalizeArray(angleScores);
         this.normalizeArray(spreadScores);
         this.normalizeArray(visibilityScores);
-
+        this.normalizeArray(distToObjScores);
+        // this.normalizeArray(reasonableAngleScores); // Already normalised
 
         for(int i = 0; i < spreadScores.Length; i++){
             fullScores[i] = distScores[i] * this.distWeight + 
                             angleScores[i] * this.angleWeight + 
                             spreadScores[i] * this.spreadWeight +
-                            visibilityScores[i] * this.visibilityWeight;
+                            visibilityScores[i] * this.visibilityWeight +
+                            distToObjScores[i] * this.distToObjWeight +
+                            reasonableAngleScores[i] * this.reasonAngleWeight;
         }
 
-
-        Array.Sort(fullScores, positionsArray);
-
-        // Debug.Log("distScores:" + arrayToString(distScores));
-        // Debug.Log("angleScores:" + arrayToString(angleScores));
-        // Debug.Log("spreadScores:" + arrayToString(spreadScores));
-        // Debug.Log("visibilityScores:" + arrayToString(visibilityScores));
-        // Debug.Log("Full:" + arrayToString(fullScores));
-
-        
-        this.lastCamPositions = positionsArray;
-        this.currentPosIndex = 0;
-        if (positions.Count > 0 ) {
-            for (int i = 0; i < positionsArray.Length; i++){
-                positionsArray[i] = 
-                    adjustDistance(positionsArray[i], 
-                                   this.objectCentres[this.currentPart], 
-                                   this.vertexSamples[this.currentPart],
-                                   draw: i == 0);
-            }
-            return positionsArray[0];
-        } else {
-            
-            return cam.transform.position;
-        }
+        return (fullScores, newPositionsArray);
     }
 
+    private float computeStabilityScore(Vector3 position, Vector3 objectPos){
+
+
+        // TODO
+        return 0f;
+    }
+
+
+    private float computeSpreadScore(Vector3 position, Vector3 objectPos){
+        
+        float avgSpred = 0f;
+        Vector3 camToObj = objectPos - position;
+        float dist = camToObj.magnitude;
+        Vector3 scaledCamPos = position + (camToObj * (1 - 1/dist)); // Distance to object will interfere with avg angles. Use this scaled camPos to avoid that.
+        for(int j = 0; j < this.vertexSamples[this.currentPart].Length; j++){ 
+            Vector3 test = position;
+
+            avgSpred += Vector3.Angle(objectPos - scaledCamPos, this.vertexSamples[this.currentPart][j] - scaledCamPos);
+        }
+        avgSpred = avgSpred / this.vertexSamples[this.currentPart].Length;
+        return (1f - avgSpred / 60f);
+    }
+
+    private float computeHumanAngleScore(Vector3 position){
+        float reasonableAngleScore = 0f;
+        for(int j = 0; j < this.humanUnreasonableAngles.Count; j++){
+            float angle = Vector3.Angle(position, this.humanUnreasonableAngles[j].Item1);
+            if (angle < this.humanUnreasonableAngles[j].Item3){
+                float score = (angle - this.humanUnreasonableAngles[j].Item2) / this.humanUnreasonableAngles[j].Item3;
+                
+                reasonableAngleScore = Mathf.Max(reasonableAngleScore, score);
+            }
+        }
+        return reasonableAngleScore;
+    }
+
+    // Checks if for any vertex the angle between camPos->vertex and camPos->objectCentre is (approximately) greater than the field of view of camera (I.e. part of object cannot be seen from that camera position.)
     private bool validateVisibility(Vector3 camPos, Vector3 objCentre, Vector3[] vertices){
         
         Vector3 camVector = objCentre - camPos;
@@ -395,6 +435,16 @@ public class MainScript : MonoBehaviour
         return validateProximity(camPos);
     }
 
+    private bool isInSideMesh(Vector3 pos, float maxDist=2f){
+        RaycastHit[] hitsIn;
+        RaycastHit[] hitsOut;
+
+        hitsIn = Physics.RaycastAll(pos, Vector3.up, maxDist); // TODO: May be too fickle. Maybe just straight up from cam and to cam?
+        hitsOut = Physics.RaycastAll(pos - maxDist * Vector3.up, -Vector3.up, maxDist);
+
+        return hitsIn.Length == hitsOut.Length;
+    }
+
     private bool validateProximity(Vector3 camPos){
 
         foreach( Vector3 direction in this.directionsReduced){
@@ -406,7 +456,7 @@ public class MainScript : MonoBehaviour
         return true;
     }
 
-    private Vector3 adjustDistance(Vector3 camPos, Vector3 objCentre, Vector3[] vertices, bool draw=false){
+    private (Vector3, float) adjustDistance(Vector3 camPos, Vector3 objCentre, Vector3[] vertices, float objMinDist, bool draw=false){
         this.dummyCam.transform.position = camPos;
         this.dummyCam.transform.LookAt(objCentre);
 
@@ -419,7 +469,6 @@ public class MainScript : MonoBehaviour
         float minX = pointLocal.x;
         float minY = pointLocal.y;
         float minZ = pointLocal.z;
-
 
         for(int i = 1; i < vertices.Length; i++){
             pointLocal = worldToCam.MultiplyPoint3x4(vertices[i]);
@@ -441,7 +490,7 @@ public class MainScript : MonoBehaviour
             }
         }
 
-        float newDist = 0f;
+        float optimalDist = 0f;
 
         float desiredYAngle = this.fovFactor * this.cam.fieldOfView/2 * 3.1415f / 180f;
         float desiredXAngle = this.fovFactor * this.cam.fieldOfView/2 * ((float) Screen.width/(float) Screen.height) * 3.1415f / 180f;
@@ -453,26 +502,23 @@ public class MainScript : MonoBehaviour
             float desiredAngle = desiredAngles[i];
             for (int j = 0; j < 2; j++){
                 float dist = Mathf.Abs(cathetusSizes[i, j]) * (Mathf.Cos(desiredAngle)/Mathf.Sin(desiredAngle)); // Change to using tangent?
-                if (dist > newDist){
-                    newDist = dist;
+                if (dist > optimalDist){
+                    optimalDist = dist;
                 }
             }
         }
 
-        if (newDist < cam.nearClipPlane){
-            newDist = cam.nearClipPlane * 1.2f;
+        if (optimalDist < cam.nearClipPlane){
+            optimalDist = cam.nearClipPlane * 1.2f;
+        }
+        if (optimalDist < objMinDist){
+            optimalDist = objMinDist;
         }
 
         Vector3 camToCentre = objCentre - camPos;
         Vector3 direction = camToCentre/camToCentre.magnitude;
 
         // Check for collisions between near clipping plane and objects, which would indicate clipping
-
-        // float yAngle = this.cam.fieldOfView/2;
-        // float xAngle = this.cam.fieldOfView/2 * (Screen.width/Screen.height);
-
-        // float halfXBox = dummyCam.nearClipPlane * Mathf.Tan(xAngle);
-        // float halfYBox = dummyCam.nearClipPlane * Mathf.Tan(yAngle);
 
         float xRes = this.clipDetectionResolutionX + 2f;
         float yRes = this.clipDetectionResolutionY + 2f;
@@ -484,29 +530,17 @@ public class MainScript : MonoBehaviour
         
         if(draw){
 
-            // createSphere(camPos, UnityEngine.Color.black);
-            // createSquare(topLeftClip, UnityEngine.Color.red, scale: .05f);
             Vector3 topRight = topLeftClip + dummyCam.transform.right * this.clipPlaneX;
-            // createSquare(topRight, UnityEngine.Color.green, scale: .05f);
             Vector3 botLeft = topLeftClip - dummyCam.transform.up * this.clipPlaneY;
-            // createSquare(botLeft, UnityEngine.Color.blue, scale: .05f);
             Vector3 botRight = topLeftClip - dummyCam.transform.up * this.clipPlaneY + dummyCam.transform.right * this.clipPlaneX;
-
-            // createSquare(botRight, UnityEngine.Color.yellow, scale: .05f);
 
             drawLine(camPos, topLeftClip, UnityEngine.Color.red);
             drawLine(camPos, topRight, UnityEngine.Color.green);
             drawLine(camPos, botLeft, UnityEngine.Color.blue);
             drawLine(camPos, botRight, UnityEngine.Color.yellow);
         }
-        //  new Vector3(-.5f * dummyCam.transform.right * this.clipPlaneX, 
-        //                                             .5f * dummyCam.transform.up * this.clipPlaneY,
-        //                                            dummyCam.nearClipPlane);
 
-        // Debug.Log(dummyCam.transform.right.magnitude.ToString() + " " + dummyCam.transform.up.magnitude.ToString() + " " + dummyCam.transform.forward.magnitude.ToString());
-
-        // TODO: Next here. Newdist is dist from obj to new cam pos. Right now the code below assumes that it is from old cam pos to new cam pos
-        float minDist = (camPos - objCentre).magnitude - newDist;
+        float minDist = (camPos - objCentre).magnitude - optimalDist;
         float maxRayDist = minDist;
 
         RaycastHit hitInfo;
@@ -529,13 +563,14 @@ public class MainScript : MonoBehaviour
                     drawLine(rayStartPos, rayStartPos + direction * dist, hit ? UnityEngine.Color.red : UnityEngine.Color.green);
                     createSphere(rayStartPos, UnityEngine.Color.red, scale: .01f);
                 }
-                // if (hit){
-                //     Debug.Log(i.ToString() + " " + j.ToString() + " " + hit.ToString());
-                // }
             }
         }
 
-        return camPos + minDist * direction;
+        float optimalDistReverse = (camPos - objCentre).magnitude - optimalDist;
+
+        float score = (optimalDistReverse - minDist)/optimalDistReverse;
+
+        return (camPos + minDist * direction, score);
     }
 
     private (float, float) computeClipPlaneSizes(Camera cam){
@@ -550,18 +585,35 @@ public class MainScript : MonoBehaviour
         return (2f * halfXBox, 2f * halfYBox);
     }
 
-    private List<Vector3> fibSphereSample(int n=25){
+    private List<Vector3> fibSphereSample(int n=25, List<(Vector3, float, float)> impossibleAngles=null){
 
         List<Vector3> points = new List<Vector3>();
         
+        int numPruneAngles = impossibleAngles != null ? impossibleAngles.Count : 0;
+
         for(int i = 0; i < n; i++){
             float j = i + 0.5f;
             float phi = Mathf.Acos((1 - 2 * j / n));
-            // float theta = 3.1415f * (1f + Mathf.Sqrt(5f)) * j;
-            float theta = 10.1664f * j;  // precompute to (extremely slightly) lower computational load
-            points.Add(new Vector3(Mathf.Cos(theta) * Mathf.Sin(phi), 
+            float theta = 10.1664f * j;  // precompute to (extremely slightly) lower computational load (3.1415f * (1f + Mathf.Sqrt(5f)) * j)
+            Vector3 direction = new Vector3(Mathf.Cos(theta) * Mathf.Sin(phi), 
                                    Mathf.Sin(theta) * Mathf.Sin(phi),
-                                   Mathf.Cos(phi)));
+                                   Mathf.Cos(phi));
+            
+            bool keepDirection = true;
+                
+            for( int k = 0; k < numPruneAngles; k++){
+                float angle = Vector3.Angle(direction, impossibleAngles[k].Item1);
+                if (angle <= impossibleAngles[k].Item2){
+                    keepDirection = false;
+                    break;
+                }
+            }
+                
+            if(keepDirection){
+                points.Add(new Vector3(Mathf.Cos(theta) * Mathf.Sin(phi), 
+                           Mathf.Sin(theta) * Mathf.Sin(phi),
+                           Mathf.Cos(phi)));
+            }
         }
 
         return points;
@@ -709,8 +761,9 @@ public class MainScript : MonoBehaviour
 
         objCentre = objCentre / this.dummyObjects.Count;
         createSquare(objCentre, UnityEngine.Color.black, scale: 0.1f);
+        float score;
 
-        this.cam.transform.position = adjustDistance(camPos, objCentre, vertices);
+        (this.cam.transform.position, score) = adjustDistance(camPos, objCentre, vertices, 0f);
         this.cam.transform.LookAt(objCentre);
 
     }
@@ -756,29 +809,4 @@ public class MainScript : MonoBehaviour
         lr.SetPosition(1, end);
         // GameObject.Destroy(myLine, duration);
     } 
-
-    // void OnDrawGizmos()
-    // {
-        
-    //     // Debug.Log("OnDrawGizmmo");
-
-    //     //Check if there has been a hit yet
-    //     if (this.boxWasHit)
-    //     {
-    //         Gizmos.color = Color.red;
-    //         //Draw a Ray forward from GameObject toward the hit
-    //         Gizmos.DrawRay(this.camPosForBoxHit, this.boxHitDirection * this.boxHit.distance);
-    //         //Draw a cube that extends to where the hit exists
-    //         // Gizmos.DrawWireCube(transform.position + transform.forward * this.boxHit.distance, transform.localScale);
-    //     }
-    //     //If there hasn't been a hit yet, draw the ray at the maximum distance
-    //     else
-    //     {
-    //         Gizmos.color = Color.green;
-    //         //Draw a Ray forward from GameObject toward the maximum distance
-    //         Gizmos.DrawRay(this.camPosForBoxHit, this.boxHitDirection * this.maxBoxDistance);
-    //         //Draw a cube at the maximum distance
-    //         // Gizmos.DrawWireCube(transform.position + transform.forward * this.maxBoxDistance, transform.localScale);
-    //     }
-    // }
 }
