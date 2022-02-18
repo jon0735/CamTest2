@@ -53,6 +53,9 @@ public class MainScript : MonoBehaviour
     private float reasonAngleWeight = 1f;
 
     [SerializeField]
+    private float stabilityWeight = 1f;
+
+    [SerializeField]
     private bool visualDebug = false;
     [SerializeField]
     private bool computeCamPos = true; 
@@ -82,6 +85,8 @@ public class MainScript : MonoBehaviour
     
     [SerializeField]
     private List<GameObject> dummyObjects;
+
+    private bool showStuffTestingBool = false;
 
 
 
@@ -132,8 +137,6 @@ public class MainScript : MonoBehaviour
         }
         (this.clipPlaneX, this.clipPlaneY) = computeClipPlaneSizes(this.cam); 
 
-        
-        
     }
 
     // Update is called once per frame
@@ -359,7 +362,8 @@ public class MainScript : MonoBehaviour
             (newPositionsArray[i] , distToObjScores[i]) = adjustDistance(positionsArray[i], objectPos, vertices, this.individualMinDists[currentPart]);
             distScores[i] = Vector3.Distance(positionsArray[i], this.cam.transform.position) / (2f * this.maxDist);
             reasonableAngleScores[i] = computeHumanAngleScore(positionsArray[i]);
-            stabilityScores[i] = computeStabilityScore(positionsArray[i], objectPos);
+            stabilityScores[i] = computeStabilityScore(newPositionsArray[i], objectPos);
+            // Debug.Log("StabilityScore: " + stabilityScores[i].ToString());
 
         }
 
@@ -376,17 +380,56 @@ public class MainScript : MonoBehaviour
                             spreadScores[i] * this.spreadWeight +
                             visibilityScores[i] * this.visibilityWeight +
                             distToObjScores[i] * this.distToObjWeight +
-                            reasonableAngleScores[i] * this.reasonAngleWeight;
+                            reasonableAngleScores[i] * this.reasonAngleWeight + 
+                            stabilityScores[i] * this.stabilityWeight;
         }
 
         return (fullScores, newPositionsArray);
     }
 
     private float computeStabilityScore(Vector3 position, Vector3 objectPos){
+        Transform t = this.dummyCam.transform;
+        t.position = position;
+        t.LookAt(objectPos);
+
+        float dist = (position - objectPos).magnitude;
+        float desiredAngle = 8f * 3.1415f / 180f; // TODO: Fix hardcoding?
+        float distToStabilityPoints = Mathf.Sin(desiredAngle) * dist / Mathf.Sin(3.1415f/2 - desiredAngle); 
+
+        Vector3 up = t.up * distToStabilityPoints;
+        Vector3 right = t.right * distToStabilityPoints;
+
+        // if (this.visualDebug || true){
+        //     Debug.Log("up: " + up.ToString());
+        //     Debug.Log("right: " + right.ToString());
+        //     Debug.Log("distToStabilityPoints: " + distToStabilityPoints.ToString());
+        //     Debug.Log("DesiredAngle: " + desiredAngle.ToString());
+        // }
+
+        Vector3 newPos;
+        float hits = 0f;
+        int points = 5;
+        for(int i = 0; i < points; i++){
+            for(int j = 0; j < points; j++){
+                if (i == (points-1)/2 && j == (points-1)/2){
+                    continue;
+                }
+                newPos = position + (i-(points-1)/2) * up + (j-(points-1)/2) * right;
+
+                if(Physics.Raycast(objectPos, objectPos - newPos, dist)){
+                    hits++;
+                }
+
+                if(this.showStuffTestingBool){
+                    this.createSphere(newPos, UnityEngine.Color.cyan, scale: 0.01f);
+                }
+            }
+        }
+        this.showStuffTestingBool = false;
 
 
         // TODO
-        return 0f;
+        return hits/(points * points - 1);
     }
 
 
@@ -439,7 +482,7 @@ public class MainScript : MonoBehaviour
         RaycastHit[] hitsIn;
         RaycastHit[] hitsOut;
 
-        hitsIn = Physics.RaycastAll(pos, Vector3.up, maxDist); // TODO: May be too fickle. Maybe just straight up from cam and to cam?
+        hitsIn = Physics.RaycastAll(pos, Vector3.up, maxDist); 
         hitsOut = Physics.RaycastAll(pos - maxDist * Vector3.up, -Vector3.up, maxDist);
 
         return hitsIn.Length == hitsOut.Length;
