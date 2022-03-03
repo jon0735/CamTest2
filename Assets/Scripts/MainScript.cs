@@ -88,6 +88,13 @@ public class MainScript : MonoBehaviour
 
     private bool showStuffTestingBool = false;
 
+    [SerializeField]
+    private bool showScores = false;
+
+    private Dictionary<string, float[]> lastScores = null;
+    private string scoreText = "";
+
+    private int[] lastCollisions = null; // needed to recompute scores when weights are changed
 
 
     // Start is called before the first frame update
@@ -99,7 +106,7 @@ public class MainScript : MonoBehaviour
 
         if (this.humanUnreasonableAngles == null){
             this.humanUnreasonableAngles = new List<(Vector3, float, float)>();
-            this.humanUnreasonableAngles.Add((Vector3.down, 30f, 60f));
+            this.humanUnreasonableAngles.Add((Vector3.up, 30f, 60f));
         }
 
         this.directions = fibSphereSample(n: sphereSampleSize, impossibleAngles: this.humanUnreasonableAngles);
@@ -144,6 +151,7 @@ public class MainScript : MonoBehaviour
     {
         if (Input.GetKeyDown(KeyCode.Space)){
             nextInstruction();
+            this.scoreText = this.buildScoreString(this.lastScores, this.currentPosIndex);
         }
 
 
@@ -153,6 +161,7 @@ public class MainScript : MonoBehaviour
                 cam.transform.position = this.lastCamPositions[this.currentPosIndex];
                 cam.transform.LookAt(this.objectCentres[currentPart]);
                 // Debug.Log(this.objectCentres[currentPart]);
+                this.scoreText = this.buildScoreString(this.lastScores, this.currentPosIndex);
             }
         }
 
@@ -162,16 +171,25 @@ public class MainScript : MonoBehaviour
                 cam.transform.position = this.lastCamPositions[this.currentPosIndex];
                 cam.transform.LookAt(this.objectCentres[currentPart]);
                 // cam.transform.LookAt(parts[currentPart].transform);
+                this.scoreText = this.buildScoreString(this.lastScores, this.currentPosIndex);
             }
         }
 
         //Debugging stuff
         if (Input.GetKeyDown(KeyCode.A)){
+            this.directions = fibSphereSample(n:sphereSampleSize, impossibleAngles: this.humanUnreasonableAngles);
+            foreach(Vector3 dir in this.directions){
+                createSphere(dir, UnityEngine.Color.white, scale: 0.03f);
+            }
+        }
+
+        if (Input.GetKeyDown(KeyCode.S)){
             this.directions = fibSphereSample(n:sphereSampleSize);
             foreach(Vector3 dir in this.directions){
-                GameObject g = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                g.transform.position = dir;
-                g.transform.localScale = new Vector3(0.05f, 0.05f, 0.05f);
+                // GameObject g = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                createSphere(dir, UnityEngine.Color.black);
+                // g.transform.position = dir;
+                // g.transform.localScale = new Vector3(0.05f, 0.05f, 0.05f);
             }
         }
 
@@ -180,6 +198,12 @@ public class MainScript : MonoBehaviour
         }
         if (Input.GetKeyDown(KeyCode.P)){
             testAdjustDistance();            
+        }
+    }
+
+    void OnGUI(){
+        if (this.showScores){
+            GUI.TextField(new Rect(10, 10, 200, 200), this.scoreText);
         }
     }
 
@@ -361,10 +385,9 @@ public class MainScript : MonoBehaviour
             visibilityScores[i] = (float) collisions[i];
             (newPositionsArray[i] , distToObjScores[i]) = adjustDistance(positionsArray[i], objectPos, vertices, this.individualMinDists[currentPart]);
             distScores[i] = Vector3.Distance(positionsArray[i], this.cam.transform.position) / (2f * this.maxDist);
-            reasonableAngleScores[i] = computeHumanAngleScore(positionsArray[i]);
+            reasonableAngleScores[i] = computeHumanAngleScore(positionsArray[i], objectPos);
             stabilityScores[i] = computeStabilityScore(newPositionsArray[i], objectPos);
             // Debug.Log("StabilityScore: " + stabilityScores[i].ToString());
-
         }
 
         this.normalizeArray(distScores);
@@ -373,6 +396,7 @@ public class MainScript : MonoBehaviour
         this.normalizeArray(visibilityScores);
         this.normalizeArray(distToObjScores);
         // this.normalizeArray(reasonableAngleScores); // Already normalised
+        // this.normalizeArray(stabilityScores); // Already normalised
 
         for(int i = 0; i < spreadScores.Length; i++){
             fullScores[i] = distScores[i] * this.distWeight + 
@@ -383,6 +407,17 @@ public class MainScript : MonoBehaviour
                             reasonableAngleScores[i] * this.reasonAngleWeight + 
                             stabilityScores[i] * this.stabilityWeight;
         }
+
+        Dictionary<string, float[]> scoreDict = new Dictionary<string, float[]>();
+        scoreDict.Add("distScores", distScores);
+        scoreDict.Add("angleScores", angleScores);
+        scoreDict.Add("spreadScores", spreadScores);
+        scoreDict.Add("visibilityScores", visibilityScores);
+        scoreDict.Add("distToObjScores", distToObjScores);
+        scoreDict.Add("reasonableAngleScores", reasonableAngleScores);
+        scoreDict.Add("stabilityScores", stabilityScores);
+        scoreDict.Add("fullScores", fullScores);
+        this.lastScores = scoreDict;
 
         return (fullScores, newPositionsArray);
     }
@@ -409,15 +444,19 @@ public class MainScript : MonoBehaviour
         Vector3 newPos;
         float hits = 0f;
         int points = 5;
+        dist = dist * .90f; // To prevent hit with self
         for(int i = 0; i < points; i++){
             for(int j = 0; j < points; j++){
                 if (i == (points-1)/2 && j == (points-1)/2){
                     continue;
                 }
                 newPos = position + (i-(points-1)/2) * up + (j-(points-1)/2) * right;
-
-                if(Physics.Raycast(objectPos, objectPos - newPos, dist)){
+                RaycastHit hit;
+                if(Physics.Raycast(newPos, objectPos - newPos, out hit, dist)){
                     hits++;
+                    // createSphere(newPos, UnityEngine.Color.green);
+                    // Vector3 endpoint = newPos + (objectPos - newPos).normalized * hit.distance;
+                    // drawLine(newPos, endpoint, UnityEngine.Color.green);
                 }
 
                 if(this.showStuffTestingBool){
@@ -448,13 +487,20 @@ public class MainScript : MonoBehaviour
         return (1f - avgSpred / 60f);
     }
 
-    private float computeHumanAngleScore(Vector3 position){
+    private float computeHumanAngleScore(Vector3 camPosition, Vector3 objPosition){
         float reasonableAngleScore = 0f;
+        Vector3 camVector = objPosition - camPosition;
         for(int j = 0; j < this.humanUnreasonableAngles.Count; j++){
-            float angle = Vector3.Angle(position, this.humanUnreasonableAngles[j].Item1);
+            float angle = Vector3.Angle(camVector, this.humanUnreasonableAngles[j].Item1);
             if (angle < this.humanUnreasonableAngles[j].Item3){
                 float score = (angle - this.humanUnreasonableAngles[j].Item2) / this.humanUnreasonableAngles[j].Item3;
-                
+                Debug.Log("CamPos: " + camPosition.ToString() + 
+                          "\nobjPos: " + objPosition.ToString() +
+                          "\ncamVector: " + camVector.ToString() + 
+                          "\nBad Direction:  " + this.humanUnreasonableAngles[j].Item1.ToString() +
+                          "\nAngle: " + angle.ToString() + 
+                          "\nscore: " + score.ToString());
+                // Debug.Log("score: " + score.ToString());
                 reasonableAngleScore = Mathf.Max(reasonableAngleScore, score);
             }
         }
@@ -597,7 +643,7 @@ public class MainScript : MonoBehaviour
                 if (hit) {
                     float hitDistAdjusted = hitInfo.distance - .5f * dummyCam.nearClipPlane;
                     if (hitDistAdjusted < minDist) {
-                        Debug.Log("minDist updated " + minDist.ToString() + " -> " + (hitDistAdjusted).ToString());
+                        // Debug.Log("minDist updated " + minDist.ToString() + " -> " + (hitDistAdjusted).ToString());
                         minDist = hitDistAdjusted;
                     }
                 }
@@ -645,7 +691,7 @@ public class MainScript : MonoBehaviour
             bool keepDirection = true;
                 
             for( int k = 0; k < numPruneAngles; k++){
-                float angle = Vector3.Angle(direction, impossibleAngles[k].Item1);
+                float angle = Vector3.Angle(-direction, impossibleAngles[k].Item1);
                 if (angle <= impossibleAngles[k].Item2){
                     keepDirection = false;
                     break;
@@ -763,6 +809,20 @@ public class MainScript : MonoBehaviour
         }
     }
 
+    private string buildScoreString(Dictionary<string, float[]> scores, int index){
+
+        string text = "";
+        foreach(var keyValPair in scores){
+            text += keyValPair.Key + ": " + keyValPair.Value[index].ToString() + "\n";
+        }
+        text +=  "Object Pos: " + this.objectCentres[currentPart].ToString() + "\n";
+        text +=  "Cam Pos: " + this.lastCamPositions[index].ToString() + "\n";
+        text +=  "Cam Vector: " + (this.objectCentres[currentPart] - this.lastCamPositions[index] ).ToString() + "\n";
+        text += "FIX: NOT CONSIDERING SORTING DONE AFTERWARDS -> This is all wrong";
+
+        return text;
+    }
+
     public void normalizeArray(float[] arr){
 
         float minVal = float.MaxValue;
@@ -810,6 +870,10 @@ public class MainScript : MonoBehaviour
         this.cam.transform.LookAt(objCentre);
 
     }
+
+    // private void testHumanAngles(){
+    //     List<Vector3> 
+    // }
 
     private void setUpTestAdjustDistance(){
         // Flytte camera til test-position
