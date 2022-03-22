@@ -4,7 +4,7 @@ using UnityEngine;
 
 public class Util 
 {
-    public static bool isInSideMesh(Vector3 pos, float maxDist=2f){
+    public static bool IsInSideMesh(Vector3 pos, float maxDist=2f){
         RaycastHit[] hitsIn;
         RaycastHit[] hitsOut;
 
@@ -15,7 +15,7 @@ public class Util
     }
 
     // This is inefficient. TODO: Fix
-    public static bool validateProximity(Vector3 camPos, List<Vector3> directionsReduced, float minDist){
+    public static bool ValidateProximity(Vector3 camPos, List<Vector3> directionsReduced, float minDist){
 
         foreach( Vector3 direction in directionsReduced){
             if (Physics.Raycast(camPos, direction, minDist)){
@@ -26,7 +26,7 @@ public class Util
         return true;
     }
 
-    public static (float, float) computeClipPlaneSizes(Camera cam){
+    public static (float, float) ComputeClipPlaneSizes(Camera cam){
         Debug.Log(Screen.width.ToString() + " " + Screen.height.ToString());
         float yAngle = cam.fieldOfView/2 * 3.1415f / 180f;
         float xAngle = cam.fieldOfView/2 * ((float) Screen.width/(float) Screen.height)* 3.1415f / 180f;
@@ -38,7 +38,7 @@ public class Util
         return (2f * halfXBox, 2f * halfYBox);
     }
 
-    public static List<Vector3> fibSphereSample(int n=25, List<(Vector3, float, float)> impossibleAngles=null){
+    public static List<Vector3> FibSphereSample(int n=25, List<(Vector3, float, float)> impossibleAngles=null){
 
         List<Vector3> points = new List<Vector3>();
         
@@ -72,7 +72,7 @@ public class Util
         return points;
     }
 
-    public static bool isNestedChild(GameObject parent, GameObject child){
+    public static bool IsNestedChild(GameObject parent, GameObject child){
         if (parent == child) {
             return true;
         }
@@ -89,7 +89,7 @@ public class Util
 
     }
 
-    public static (List<Vector3[]>, List<Vector3>, Vector3) sampleVerticePoints(List<GameObject> parts, int samples=10){
+    public static (List<Vector3[]>, List<Vector3>, Vector3) SampleVerticePoints(List<GameObject> parts, int samples=10){
 
         Vector3[] vertices;
         System.Random rand = new System.Random();
@@ -99,7 +99,7 @@ public class Util
         int totalVerticesCount = 0;
         for(int i = 0; i < parts.Count; i++){
 
-            vertices = Util.recursiveGetVertices(parts[i].transform);
+            vertices = Util.RecursiveGetVertices(parts[i].transform);
             int n = vertices.Length;
             int sampleSize = n <= samples ? n : samples;
             Vector3[] sample = new Vector3[samples];
@@ -127,7 +127,7 @@ public class Util
         return (vertexSamples, meshCentres, sceneCentre/totalVerticesCount);
     }
 
-    public static Vector3[] recursiveGetVertices(Transform trans){
+    public static Vector3[] RecursiveGetVertices(Transform trans){
         Vector3[][] vertices = new Vector3[trans.childCount + 1][];
         Component mainMesh = trans.GetComponent("MeshFilter");
         Matrix4x4 localToWorld = trans.localToWorldMatrix;
@@ -143,13 +143,13 @@ public class Util
         }
 
         for(int i = 0; i < trans.childCount; i++){
-            vertices[i+1] = recursiveGetVertices(trans.GetChild(i));
+            vertices[i+1] = RecursiveGetVertices(trans.GetChild(i));
         }
 
-        return Util.mergeArrays(vertices);
+        return Util.MergeArrays(vertices);
     }
 
-    public static T[] mergeArrays<T>(T[][] arrays){
+    public static T[] MergeArrays<T>(T[][] arrays){
         int combinedLength = 0;
         foreach(T[] array in arrays){
             combinedLength += array.Length;
@@ -166,17 +166,17 @@ public class Util
         return combinedArray;
     }
 
-    public static void recursiveChangeColor(GameObject obj, UnityEngine.Color col){
+    public static void RecursiveChangeColor(GameObject obj, UnityEngine.Color col){
         Renderer r = obj.GetComponent<Renderer>();
         if( r != null){
             r.material.color = col;
         }
         foreach(Transform childT in obj.transform){
-            recursiveChangeColor(childT.gameObject, col);
+            RecursiveChangeColor(childT.gameObject, col);
         }
     }
 
-    public static void addCollidersRecursive(GameObject obj){
+    public static void AddCollidersRecursive(GameObject obj){
         MeshRenderer ren = obj.GetComponent<MeshRenderer>();
         if (ren != null){
             MeshCollider collider = obj.GetComponent<MeshCollider>();
@@ -185,11 +185,11 @@ public class Util
             }
         }
         foreach (Transform childT in obj.transform){
-            addCollidersRecursive(childT.gameObject);
+            AddCollidersRecursive(childT.gameObject);
         }
     }
 
-    public static void normalizeArray(float[] arr){
+    public static void NormalizeArray(float[] arr){
 
         float minVal = float.MaxValue;
         float maxVal = float.MinValue;
@@ -212,12 +212,12 @@ public class Util
     }
 
 
-    public static string arrayToString<T>(T[] arr){
+    public static string ArrayToString<T>(T[] arr){
 		string res = string.Join(" , ", arr);
 		return "[" + res + "]";
 	}
 
-    public static void createSphere(Vector3 pos, UnityEngine.Color col, float scale=0.02f){
+    public static void CreateSphere(Vector3 pos, UnityEngine.Color col, float scale=0.02f){
         GameObject g = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         g.transform.position = pos;
         g.transform.localScale = new Vector3(scale, scale, scale);
@@ -225,7 +225,7 @@ public class Util
         g.GetComponent<Collider>().enabled = false;
     }
 
-    public static void createSquare(Vector3 pos, UnityEngine.Color col, float scale=0.02f){
+    public static void CreateSquare(Vector3 pos, UnityEngine.Color col, float scale=0.02f){
         GameObject g = GameObject.CreatePrimitive(PrimitiveType.Cube); 
         g.transform.position = pos;
         g.transform.localScale = new Vector3(scale, scale, scale);
@@ -233,7 +233,7 @@ public class Util
         g.GetComponent<Collider>().enabled = false;
     }
 
-    public static void drawLine(Vector3 start, Vector3 end, Color color, Material basicMat, float width=0.002f){
+    public static void DrawLine(Vector3 start, Vector3 end, Color color, Material basicMat, float width=0.002f){
         GameObject myLine = new GameObject();
         myLine.transform.position = start;
         myLine.AddComponent<LineRenderer>();
