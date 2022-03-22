@@ -57,8 +57,7 @@ public class MainScript : MonoBehaviour
 
     [SerializeField]
     private bool visualDebug = false;
-    [SerializeField]
-    private bool computeCamPos = true; 
+
     
     [SerializeField]
     private float fovFactor = .75f;
@@ -69,9 +68,9 @@ public class MainScript : MonoBehaviour
     private Camera dummyCam;
 
     [SerializeField]
-    int clipDetectionResolutionX = 0;
+    int clipDetectionResolutionX = 4;
     [SerializeField]
-    int clipDetectionResolutionY = 0;
+    int clipDetectionResolutionY = 3;
 
     float clipPlaneX;
     float clipPlaneY;
@@ -109,20 +108,20 @@ public class MainScript : MonoBehaviour
             this.humanUnreasonableAngles.Add((Vector3.up, 30f, 60f));
         }
 
-        this.directions = Util.fibSphereSample(n: sphereSampleSize, impossibleAngles: this.humanUnreasonableAngles);
-        Debug.Log(this.directions.Count);
+        this.directions = Util.fibSphereSample(n: this.sphereSampleSize, impossibleAngles: this.humanUnreasonableAngles);
+        // Debug.Log(this.directions.Count);
         this.directionsReduced = Util.fibSphereSample(n: 15); // TODO: Fix Hardcoding
         (this.vertexSamples, this.objectCentres, this.sceneCentre) = Util.sampleVerticePoints(this.parts, samples: vertexSampleSize);
         this.camInitPos = cam.transform.position;
         this.camInitRot = cam.transform.rotation;
-        this.colArray = new UnityEngine.Color[8] {UnityEngine.Color.black, 
-                                                  UnityEngine.Color.blue, 
-                                                  UnityEngine.Color.green, 
-                                                  UnityEngine.Color.yellow, 
-                                                  UnityEngine.Color.magenta, 
-                                                  UnityEngine.Color.cyan,
-                                                  UnityEngine.Color.grey,
-                                                  UnityEngine.Color.black};
+        this.colArray = new UnityEngine.Color[8] { UnityEngine.Color.black, 
+                                                   UnityEngine.Color.blue, 
+                                                   UnityEngine.Color.green, 
+                                                   UnityEngine.Color.yellow, 
+                                                   UnityEngine.Color.magenta, 
+                                                   UnityEngine.Color.cyan,
+                                                   UnityEngine.Color.grey,
+                                                   UnityEngine.Color.black };
 
         this.individualMinDists = new float[this.parts.Count];
         for (int i = 0; i < this.parts.Count; i++){
@@ -211,9 +210,7 @@ public class MainScript : MonoBehaviour
         if (currentPart < parts.Count -1){
             currentPart++;
             
-            if (this.computeCamPos) {
-                cam.transform.position = findCamPos();
-            }
+            cam.transform.position = findCamPos();
 
             parts[currentPart].SetActive(true);  
             Util.recursiveChangeColor(parts[currentPart],  UnityEngine.Color.black);
@@ -608,7 +605,7 @@ public class MainScript : MonoBehaviour
                               -.5f * dummyCam.transform.right * this.clipPlaneX + 
                                .5f * dummyCam.transform.up * this.clipPlaneY +
                                dummyCam.transform.forward * dummyCam.nearClipPlane;
-        
+         
         if(draw){
 
             Vector3 topRight = topLeftClip + dummyCam.transform.right * this.clipPlaneX;
