@@ -9,16 +9,14 @@ public class SceneControls : MonoBehaviour
     private bool showScores = false;
 
     [SerializeField]
-    private CameraPositionFinder posFinder = null;
+    private CameraPositionFinder posFinder = null; // Camera pose finder script. If none is set in editor, script will search for one attached to the same GameObject as this script
 
 
     void Start()
     {
-
         if (this.posFinder is null){
             this.posFinder = this.gameObject.GetComponent<CameraPositionFinder>();
         }
-
     }
 
     void Update()
@@ -42,7 +40,8 @@ public class SceneControls : MonoBehaviour
 
     void OnGUI(){
         if (this.showScores){
-            GUI.TextField(new Rect(10, 10, 200, 200), this.posFinder.GetScoreText());
+            Debug.LogWarning("Score string not reliable due to being created from non-sorted scores. I.e. the wrong scores are shown for a given position");
+            GUI.TextField(new Rect(10, 10, 200, 200), this.posFinder.scoreText); // This is still bugged due to sorting
         }
     }
 

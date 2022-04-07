@@ -65,9 +65,11 @@ public class CameraPositionFinder : MonoBehaviour
 
     private float[] individualMinDists;
 
-    // [SerializeField]
-    private Camera dummyCam;
+    private Camera dummyCam; // Camera to use the camera class methods for computations, without chaning main camera. Might not be the smartest way to do it.
 
+
+    // Next to fields determine the detail of the grid used to detect if adjusting camera position will cause clipping planes issue
+    // If clipDetectionResolutionX = 4 and clipDetectionResolutionY = 3 -> 12 raycasts will be used to determine this.
     [SerializeField]
     int clipDetectionResolutionX = 4;
     [SerializeField]
@@ -75,28 +77,42 @@ public class CameraPositionFinder : MonoBehaviour
 
     float clipPlaneX;
     float clipPlaneY;
-    // For Debugging
+    
     private Vector3[] lastCamPositions;
 
     private int currentPosIndex;
 
-    [SerializeField] // Apparently doesn't work with list of tuples
+    // [SerializeField] // Apparently doesn't work with list of tuples. Thanks Unity
     private List<(Vector3, float, float)> humanUnreasonableAngles; // Vector3: Impossible/unreasonable direction, float: angle from this direction considered impossible, float: largest angle from direction considered impractical
-    
-    // [SerializeField]
-    // private List<GameObject> dummyObjects;
 
     private bool showStuffTestingBool = false;
 
-    private Dictionary<string, float[]> lastScores = null;
-    private string scoreText = "";
+    // private Dictionary<string, float[]> lastScores = null;
+    private float[,] lastScores = null;
+    public string scoreText {get; private set;} = "";
 
-    private int[] lastCollisions = null; // needed to recompute scores when weights are changed
+    private int[] lastCollisions = null; // needed to recompute scores when weights are changed (Not Implemented yet)
+    
+    private List<ScoreComputer> scoreComputers;
+
+    [SerializeField]
+    private List<ScoreType> scoreTypes;
+    [SerializeField]
+    private List<float> scoreWeights;
 
 
-    // Start is called before the first frame update
     void Start()
     {
+        if (this.scoreTypes.Count != this.scoreWeights.Count){
+            throw new Exception("The number of score types must be equal to the number of score weights: Types count: " + this.scoreTypes.Count + ", Weights count: " + this.scoreWeights.Count);
+        }
+
+        this.scoreComputers = new List<ScoreComputer>(this.scoreTypes.Count);
+
+        for(int i = 0; i < this.scoreTypes.Count; i++){
+            scoreComputers.Add(Util.CreateScoreComputerFromScoreType(this.scoreTypes[i], this.scoreWeights[i]));
+        }
+
         this.dummyCam = Instantiate(this.cam, new Vector3(), new Quaternion());
 
         this.dummyCam.enabled = false;
@@ -153,31 +169,34 @@ public class CameraPositionFinder : MonoBehaviour
 
     }
 
+    /// <summary>
+    /// Called when next object should be rought into focus. Updated fields, and calls main algorithm to find new camera position
+    /// </summary>
     public void NextInstruction(){
         if (currentPart < parts.Count -1){
             currentPart++;
             
-            
-            cam.transform.position = FindCamPos();
+            cam.transform.position = this.FindCamPos();
 
             parts[currentPart].SetActive(true);  
             Util.RecursiveChangeColor(parts[currentPart],  UnityEngine.Color.black);
-            // parts[currentPart].transform.GetChild(0).GetComponent<MeshRenderer>().material.color = UnityEngine.Color.white;
 
             cam.transform.LookAt(this.objectCentres[currentPart]);
             if (currentPart > 0){
                 Util.RecursiveChangeColor(parts[currentPart - 1],  UnityEngine.Color.grey);
-                // parts[currentPart - 1].transform.GetChild(0).GetComponent<MeshRenderer>().material.color = UnityEngine.Color.grey;
             }
 
         } else {
             Util.RecursiveChangeColor(parts[currentPart],  UnityEngine.Color.grey);
 
-            Reset();
+            this.Reset();
             currentPart = -1;
         }
     }
 
+    /// <summary>
+    /// Resets scene view into original setup, with only initial structure activated.
+    /// </summary>
     private void Reset(){
         foreach (GameObject part in parts){
             part.SetActive(false);
@@ -186,30 +205,42 @@ public class CameraPositionFinder : MonoBehaviour
         cam.transform.position = camInitPos;
     }
 
+    /// <summary>
+    /// Goes to the next camera position for the same instruction, i.e. a camera position with slightly lower score.
+    /// </summary>
     public void NextPos(){
 
         if (this.currentPosIndex + 1 < this.lastCamPositions.Length){
             this.currentPosIndex++;
             cam.transform.position = this.lastCamPositions[this.currentPosIndex];
             cam.transform.LookAt(this.objectCentres[currentPart]);
-            // Debug.Log(this.objectCentres[currentPart]);
             this.scoreText = this.BuildScoreString(this.lastScores, this.currentPosIndex);
         }
     }
 
+    /// <summary>
+    /// Goes to the previous camera position for the same instruction, i.e. a camera position with slightly higher score.
+    /// </summary>
     public void PrevPos(){
 
         if (this.currentPosIndex > 0){
             this.currentPosIndex--;
             cam.transform.position = this.lastCamPositions[this.currentPosIndex];
             cam.transform.LookAt(this.objectCentres[currentPart]);
-            // cam.transform.LookAt(parts[currentPart].transform);
             this.scoreText = this.BuildScoreString(this.lastScores, this.currentPosIndex);
         }
     }
 
 
-    // Main algorithm
+    /// <summary>
+    /// Main algorithm for camera position finding.
+    /// 
+    /// Uses raycasts from and to the centre of the object in question to find initial camera position proposals. 
+    /// Then uses more raycast to approximate how large a portion of the object is visible, and discards the worst fraction of the found proposals.
+    /// Then adjusts the distance between camera and object, to fill up most of the camera view, without causing clipping plane isues
+    /// Finnaly scores each position based on "ScoreComputer" implementations to find the best position
+    /// </summary>
+    /// <returns>Best camera position found, or exisitng camera position, if no valid positions can be found</returns>
     private Vector3 FindCamPos(){
 
         Vector3 objectPos = this.objectCentres[currentPart];
@@ -217,9 +248,9 @@ public class CameraPositionFinder : MonoBehaviour
 
         List<Vector3> positions = this.GetPositionProposals();
         
-        Vector3[] positionsArray;
-        int[] collisions;
-        (positionsArray, collisions) = this.PrunePositionProposals(positions);
+        // Vector3[] positionsArray;
+        // int[] collisions;
+        (Vector3[] positionsArray, int[]  collisions) = this.PrunePositionProposals(positions);
         
         float[] fullScores;
         (fullScores, positionsArray) = this.ComputePosScores(positionsArray, collisions);
@@ -232,51 +263,95 @@ public class CameraPositionFinder : MonoBehaviour
         if (positions.Count > 0 ) {
             return positionsArray[0];
         } else {
+            // TODO: Consider doing a more detailed pass to attempt to find useable camera positions
             Debug.Log("No Positions found");
+            this.lastCamPositions = new Vector3[]{cam.transform.position};
             return cam.transform.position;
         }
     }
 
+    /// <summary>
+    /// Finds initial valid camera position proposals.
+    /// </summary>
+    /// <returns>List of valid potential camera positions</returns>
     private List<Vector3> GetPositionProposals(){
         
         List<Vector3> positions = new List<Vector3>();
         Vector3 objectPos = this.objectCentres[currentPart];
         Vector3[] vertices = this.vertexSamples[currentPart];
 
-        RaycastHit hit;
         foreach(Vector3 direction in this.directions){
 
-            bool wasHit = Physics.Raycast(objectPos, direction, out hit, maxDist);
-            bool usablePosBeforeHit = false; 
-            bool inverseHitRightObject = false;
-            Vector3 camPos = objectPos + direction * maxDist;
-
-            if (wasHit){
-                if (hit.distance > this.individualMinDists[currentPart]){
-                    camPos = objectPos + direction * (hit.distance - 1.05f * this.minDist); // TODO: Fix hardcoding
-                    usablePosBeforeHit = !Util.IsInSideMesh(camPos) && ValidateVisibility(camPos, objectPos, vertices);
-                } else {
-                    this.parts[this.currentPart].SetActive(true);
-                    if (Physics.Raycast(objectPos + direction, -direction, out hit, maxDist)){
-                    
-                        GameObject obj = hit.collider.gameObject;
-                        inverseHitRightObject = Util.IsNestedChild(this.parts[currentPart], obj);
-                        // Debug.Log("Inverse correct hit: " + inverseHitRightObject.ToString());
-                        // if (currentPart == 3){
-                        //     drawLine(objectPos, objectPos + direction, UnityEngine.Color.blue);
-                        // }
-                    this.parts[this.currentPart].SetActive(false);
-                }
-                } 
-            } 
-
-            if (!wasHit || usablePosBeforeHit || inverseHitRightObject){
-                positions.Add(camPos);
+            (bool usefulPosition, Vector3 camPosition) = this.FindUsablePosFromDirection(objectPos, direction);
+            if (usefulPosition){
+                positions.Add(camPosition);
             }
+
         }
+
         return positions;
     }
 
+    /// <summary>
+    /// Examines if there is a valid camera position, in a given direction form the object in question
+    /// </summary>
+    /// <param name="objectPos">Position of the object that needs to be viewed</param>
+    /// <param name="direction">The direction in which we wish to know if there is a valid camera position</param>
+    /// <returns>A tuple containing a boolean value to indicate if there is a valid position, and a Vector3 position containing such a position</returns>
+    private (bool, Vector3) FindUsablePosFromDirection(Vector3 objectPos, Vector3 direction){
+        
+        RaycastHit hit;
+        bool wasHit = Physics.Raycast(objectPos, direction, out hit, this.maxDist);
+
+        // If raycast hits nothing -> clear line from centre of object to max-dist camera position.
+        if (!wasHit){
+            return (true, objectPos + direction * this.maxDist);
+        }
+
+        // If the distance before raycast hit is greater than some min dist, there might be a usable camera position before the raycast hit
+        if (hit.distance > this.individualMinDists[currentPart]){
+            Vector3 camPos = objectPos + direction * (hit.distance - 1.05f * this.minDist); // TODO: Fix hardcoding
+            bool usablePos = !Util.IsInSideMesh(camPos) && ValidateVisibility(camPos, objectPos, this.vertexSamples[currentPart]); // TODO: Check and test ValidateVisibility. I am unsure of the impact of the function.
+           
+            // If there is a reasonable amount of room, and the position is not inside a mesh, we can use the position as a potentially useful camera position
+            if (usablePos){
+                return (true, camPos);
+            } 
+            else {
+                // TODO: This branch is hit quite often. Check if this is due to poor hardcoding choice of "camPos" above such that there is no room around, or maybe "ValidateVisibility" being outdated?
+                // Debug.Log("FindUsablePosFromDirection validation failed. Check it!");
+                return (false, new Vector3(0, 0, 0));
+            }
+        } 
+            
+        this.parts[this.currentPart].SetActive(true); 
+        wasHit = Physics.Raycast(objectPos + direction, -direction, out hit, maxDist);
+        this.parts[this.currentPart].SetActive(false);
+
+        if (wasHit){
+        
+            GameObject hitObj = hit.collider.gameObject;
+            bool hitRightObject = Util.IsNestedChild(this.parts[currentPart], hitObj);
+            if (hitRightObject){
+                return (true, objectPos + direction * this.maxDist);
+            }
+            else {
+                return (false, new Vector3(0, 0, 0));
+            }
+        } 
+
+        // Should never end up here. If the first raycast hits something, so should the second (and if the first doesn't hit something, we return early)
+
+        return (false, new Vector3(0, 0, 0)); // disallow direction as default 
+    }
+
+    /// <summary>
+    /// Prunes a list of positions, such that only the positions with the highest fraction of the object being visible are kept. 
+    /// Uses raycast colisions to approximate how much of the object is visible. Fewer colisions -> more of the object is visible.
+    /// This is to reduce the computational load of further adjusting and scoring of positions.
+    /// </summary>
+    /// <param name="positions">List of positions to be pruned</param>
+    /// <returns>A tuple with the pruned list of positions, and the number of raycast colisions for each of these positions</returns>
     private (Vector3[], int[]) PrunePositionProposals(List<Vector3> positions){
         int[] collisions = new int[positions.Count];
         RaycastHit hit;
@@ -337,155 +412,61 @@ public class CameraPositionFinder : MonoBehaviour
         return (positionsArray, collisions);
     }
 
+    /// <summary>
+    /// Computes scores for each of the found potential camera position. Uses a List of implementations of ScoreComputer for this. Adjusts distance of positions
+    /// in this step due to overlap between distance computations and certain score computations.
+    /// </summary>
+    /// <param name="positionsArray">Array of positions to be assigned a score</param>
+    /// <param name="collisions">Number of collisions from earlier pruning step. Needed for VisibilityScore </param>
+    /// <returns>Tuple containing List of scores and a list of distace adjusted positions</returns>
+    /// <exception cref="System.NotImplementedException"></exception>
     private (float[], Vector3[]) ComputePosScores(Vector3[] positionsArray, int[] collisions){
 
         Vector3 objectPos = this.objectCentres[currentPart];
         Vector3[] vertices = this.vertexSamples[currentPart];
         int prunedPosCount = positionsArray.Length;
 
-        float[] distScores = new float[prunedPosCount];
-        float[] angleScores = new float[prunedPosCount];
-        float[] spreadScores = new float[prunedPosCount];
-        float[] visibilityScores = new float[prunedPosCount];
-        float[] distToObjScores = new float[prunedPosCount];
-        float[] reasonableAngleScores = new float[prunedPosCount];
-        float[] stabilityScores = new float[prunedPosCount];
-        // TODO?: Add something to represent there being space around the found area
+        int scoreCount = this.scoreWeights.Count;
+        if(scoreCount <= 0){
+            throw new System.NotImplementedException("Missing implementation for handling no scoring system (would that ever be relevant though?)");
+        }
 
-        Vector3[] newPositionsArray = new Vector3[prunedPosCount];
-        Vector3 centre = this.sceneCentre; 
+        float[,] scores = new float[scoreCount, prunedPosCount];
+
+        (Vector3[] newPositions, float[] distanceToObjectScores) = AdjustDistances(positionsArray, objectPos, vertices, this.individualMinDists[this.currentPart]);
+
+        DataForScoreComputation data = new DataForScoreComputation(objectPos,
+                                                                   this.sceneCentre,
+                                                                   this.cam,
+                                                                   this.dummyCam,
+                                                                   this.maxDist,
+                                                                   collisions,
+                                                                   distanceToObjectScores,
+                                                                   this.vertexSamples[this.currentPart],
+                                                                   this.humanUnreasonableAngles);
+
+        for(int i = 0; i < scoreCount; i++){
+            for (int j = 0; j < prunedPosCount; j++){
+                scores[i, j] = this.scoreComputers[i].ComputeScore(objectPos, data, j);
+            }
+            if (this.scoreComputers[i].needsNormalization){
+                Util.NormalizeArrayRow(scores, i);
+            }
+        }
+
         float[] fullScores = new float[prunedPosCount];
 
-        // TODO: Fix all hardcoding
-
-        for(int i = 0; i < prunedPosCount; i++){
-
-            angleScores[i] = Vector3.Angle(objectPos - positionsArray[i], centre - positionsArray[i]) / 180f;
-            spreadScores[i] = ComputeSpreadScore(positionsArray[i], objectPos);
-            visibilityScores[i] = (float) collisions[i];
-            (newPositionsArray[i] , distToObjScores[i]) = AdjustDistance(positionsArray[i], objectPos, vertices, this.individualMinDists[currentPart]);
-            distScores[i] = Vector3.Distance(positionsArray[i], this.cam.transform.position) / (2f * this.maxDist);
-            reasonableAngleScores[i] = ComputeHumanAngleScore(positionsArray[i], objectPos);
-            stabilityScores[i] = ComputeStabilityScore(newPositionsArray[i], objectPos);
-            // Debug.Log("StabilityScore: " + stabilityScores[i].ToString());
-        }
-
-        Util.NormalizeArray(distScores);
-        Util.NormalizeArray(angleScores);
-        Util.NormalizeArray(spreadScores);
-        Util.NormalizeArray(visibilityScores);
-        Util.NormalizeArray(distToObjScores);
-        // this.normalizeArray(reasonableAngleScores); // Already normalised
-        // this.normalizeArray(stabilityScores); // Already normalised
-
-        for(int i = 0; i < spreadScores.Length; i++){
-            fullScores[i] = distScores[i] * this.distWeight + 
-                            angleScores[i] * this.angleWeight + 
-                            spreadScores[i] * this.spreadWeight +
-                            visibilityScores[i] * this.visibilityWeight +
-                            distToObjScores[i] * this.distToObjWeight +
-                            reasonableAngleScores[i] * this.reasonAngleWeight + 
-                            stabilityScores[i] * this.stabilityWeight;
-        }
-
-        Dictionary<string, float[]> scoreDict = new Dictionary<string, float[]>();
-        scoreDict.Add("distScores", distScores);
-        scoreDict.Add("angleScores", angleScores);
-        scoreDict.Add("spreadScores", spreadScores);
-        scoreDict.Add("visibilityScores", visibilityScores);
-        scoreDict.Add("distToObjScores", distToObjScores);
-        scoreDict.Add("reasonableAngleScores", reasonableAngleScores);
-        scoreDict.Add("stabilityScores", stabilityScores);
-        scoreDict.Add("fullScores", fullScores);
-        this.lastScores = scoreDict;
-
-        return (fullScores, newPositionsArray);
-    }
-
-    private float ComputeStabilityScore(Vector3 position, Vector3 objectPos){
-        Transform t = this.dummyCam.transform;
-        t.position = position;
-        t.LookAt(objectPos);
-
-        float dist = (position - objectPos).magnitude;
-        float desiredAngle = 8f * 3.1415f / 180f; // TODO: Fix hardcoding?
-        float distToStabilityPoints = Mathf.Sin(desiredAngle) * dist / Mathf.Sin(3.1415f/2 - desiredAngle); 
-
-        Vector3 up = t.up * distToStabilityPoints;
-        Vector3 right = t.right * distToStabilityPoints;
-
-        // if (this.visualDebug || true){
-        //     Debug.Log("up: " + up.ToString());
-        //     Debug.Log("right: " + right.ToString());
-        //     Debug.Log("distToStabilityPoints: " + distToStabilityPoints.ToString());
-        //     Debug.Log("DesiredAngle: " + desiredAngle.ToString());
-        // }
-
-        Vector3 newPos;
-        float hits = 0f;
-        int points = 5;
-        dist = dist * .90f; // To prevent hit with self
-        for(int i = 0; i < points; i++){
-            for(int j = 0; j < points; j++){
-                if (i == (points-1)/2 && j == (points-1)/2){
-                    continue;
-                }
-                newPos = position + (i-(points-1)/2) * up + (j-(points-1)/2) * right;
-                RaycastHit hit;
-                if(Physics.Raycast(newPos, objectPos - newPos, out hit, dist)){
-                    hits++;
-                    // createSphere(newPos, UnityEngine.Color.green);
-                    // Vector3 endpoint = newPos + (objectPos - newPos).normalized * hit.distance;
-                    // drawLine(newPos, endpoint, UnityEngine.Color.green);
-                }
-
-                if(this.showStuffTestingBool){
-                    Util.CreateSphere(newPos, UnityEngine.Color.cyan, scale: 0.01f);
-                }
+        for(int i = 0; i < scoreCount; i++){
+            for (int j = 0; j < prunedPosCount; j++){
+                fullScores[j] += scores[i, j] * this.scoreComputers[i].weight;
             }
         }
-        this.showStuffTestingBool = false;
 
+        this.lastScores = scores;
 
-        // TODO
-        return hits/(points * points - 1);
+        return (fullScores, newPositions);
     }
 
-
-    private float ComputeSpreadScore(Vector3 position, Vector3 objectPos){
-        
-        float avgSpred = 0f;
-        Vector3 camToObj = objectPos - position;
-        float dist = camToObj.magnitude;
-        Vector3 scaledCamPos = position + (camToObj * (1 - 1/dist)); // Distance to object will interfere with avg angles. Use this scaled camPos to avoid that.
-        for(int j = 0; j < this.vertexSamples[this.currentPart].Length; j++){ 
-            Vector3 test = position;
-
-            avgSpred += Vector3.Angle(objectPos - scaledCamPos, this.vertexSamples[this.currentPart][j] - scaledCamPos);
-        }
-        avgSpred = avgSpred / this.vertexSamples[this.currentPart].Length;
-        return (1f - avgSpred / 60f);
-    }
-
-    private float ComputeHumanAngleScore(Vector3 camPosition, Vector3 objPosition){
-        float reasonableAngleScore = 0f;
-        Vector3 camVector = objPosition - camPosition;
-        for(int j = 0; j < this.humanUnreasonableAngles.Count; j++){
-            float angle = Vector3.Angle(camVector, this.humanUnreasonableAngles[j].Item1);
-            if (angle < this.humanUnreasonableAngles[j].Item3){
-                float score = (angle - this.humanUnreasonableAngles[j].Item2) / this.humanUnreasonableAngles[j].Item3;
-                // Debug.Log("CamPos: " + camPosition.ToString() + 
-                //           "\nobjPos: " + objPosition.ToString() +
-                //           "\ncamVector: " + camVector.ToString() + 
-                //           "\nBad Direction:  " + this.humanUnreasonableAngles[j].Item1.ToString() +
-                //           "\nAngle: " + angle.ToString() + 
-                //           "\nscore: " + score.ToString());
-                // Debug.Log("score: " + score.ToString());
-                reasonableAngleScore = Mathf.Max(reasonableAngleScore, score);
-            }
-        }
-        return reasonableAngleScore;
-    }
 
     // Checks if for any vertex the angle between camPos->vertex and camPos->objectCentre is (approximately) greater than the field of view of camera (I.e. part of object cannot be seen from that camera position.)
     private bool ValidateVisibility(Vector3 camPos, Vector3 objCentre, Vector3[] vertices){
@@ -504,6 +485,36 @@ public class CameraPositionFinder : MonoBehaviour
         return Util.ValidateProximity(camPos, this.directionsReduced, this.minDist);  // TODO: Fix to use individual minDists?
     }
 
+    /// <summary>
+    /// Adjusts distances of an array of positions, and computes the distance score for each of these.
+    /// </summary>
+    /// <param name="positionsArray">Array of positions to be adjusted and scored</param>
+    /// <param name="objectPos">Position of the object to be viewed</param>
+    /// <param name="vertices">A subset of the vertices of the object mesh</param>
+    /// <param name="minDist">Minimal viewing distance</param>
+    /// <returns>A tuple containing a list of distance adjusted camera positions, and a list of scores based on these adjsutments</returns>
+    private (Vector3[], float[]) AdjustDistances(Vector3[] positionsArray, Vector3 objectPos, Vector3[] vertices, float minDist){
+
+        int n = positionsArray.Length;
+        Vector3[] newPositions = new Vector3[n];
+        float[] scores = new float[n];
+
+        for (int i = 0; i < n; i++){
+            (newPositions[i], scores[i]) = AdjustDistance(positionsArray[i], objectPos, vertices, minDist);
+        }
+
+        return (newPositions, scores);
+    }
+
+    /// <summary>
+    /// Adjusts distances of anpositions, and computes the distance score ascociated with this adjustement.
+    /// </summary>
+    /// <param name="camPos">Camera position to be adjusted</param>
+    /// <param name="objCentre">Centre of object to be viewed</param>
+    /// <param name="vertices">Subset of vertices of said object</param>
+    /// <param name="objMinDist">Minimal viewing distance of said object</param>
+    /// <param name="draw">Debugging param to determine if lines7spehres should be drawn to visualise computations</param>
+    /// <returns>A Tuple containing a distance adjusted position, and a score based on this adjsutment</returns>
     private (Vector3, float) AdjustDistance(Vector3 camPos, Vector3 objCentre, Vector3[] vertices, float objMinDist, bool draw=false){
         this.dummyCam.transform.position = camPos;
         this.dummyCam.transform.LookAt(objCentre);
@@ -623,12 +634,17 @@ public class CameraPositionFinder : MonoBehaviour
 
 
     // TODO: Move somewhere else
-    public string BuildScoreString(Dictionary<string, float[]> scores, int index){
+    public string BuildScoreString(float[,] scores, int index){
 
         string text = "";
-        foreach(var keyValPair in scores){
-            text += keyValPair.Key + ": " + keyValPair.Value[index].ToString() + "\n";
+        int numScores = scores.GetLength(0);
+
+        for(int i = 0; i < numScores; i++){
+            text += this.scoreComputers[i].GetScoreName() + ": " + scores[i, index].ToString() + "\n";
         }
+        // foreach(var keyValPair in scores){
+        //     text += keyValPair.Key + ": " + keyValPair.Value[index].ToString() + "\n";
+        // }
         text +=  "Object Pos: " + this.objectCentres[currentPart].ToString() + "\n";
         text +=  "Cam Pos: " + this.lastCamPositions[index].ToString() + "\n";
         text +=  "Cam Vector: " + (this.objectCentres[currentPart] - this.lastCamPositions[index] ).ToString() + "\n";
@@ -637,8 +653,9 @@ public class CameraPositionFinder : MonoBehaviour
         return text;
     }
 
-    public string GetScoreText(){
-        return this.scoreText;
-    }
+
+    // public string GetScoreText(){
+    //     return this.scoreText;
+    // }
 
 }
