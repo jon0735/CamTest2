@@ -74,3 +74,6 @@ crashlytics-build.properties
 # Manual changes
 real_data_scene.unity
 real_data_scene.meta
+Assets/Scenes/**
+VistraTestScenes2.zip
+VistraTestScenes2/**

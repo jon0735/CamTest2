@@ -13,4 +13,8 @@ public class DistanceToObjectScore : ScoreComputer{
     {
         return data.distanceToObjectScore[directionIndex];
     }
+
+    public override bool NeedsNormalization(){
+        return true;
+    }
 }

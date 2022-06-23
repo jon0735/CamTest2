@@ -198,10 +198,13 @@ public class Util
     /// <summary>
     /// Merges an array of arrays to a single array.
     /// </summary>
-    /// <typeparam name="T">Type of the variables contained in the array of arrays</typeparam>
+    /// <typeparam name="T">Type of the variables contained in the arrays</typeparam>
     /// <param name="arrays">The array of arrays to be merged.</param>
     /// <returns>The merged array</returns>
     public static T[] MergeArrays<T>(T[][] arrays){
+        if (arrays.Length == 1){
+            return arrays[0];
+        }
         int combinedLength = 0;
         foreach(T[] array in arrays){
             combinedLength += array.Length;
@@ -216,6 +219,33 @@ public class Util
         }
 
         return combinedArray;
+    }
+
+    /// <summary>
+    /// Merges a list of arrays to a single array.
+    /// </summary>
+    /// <typeparam name="T">Type of the variables contained in the arrays</typeparam>
+    /// <param name="list">The list of arrays to be merged.</param>
+    /// <returns>The merged array</returns>
+    public static T[] MergeListOfArrays<T>(List<T[]> list){
+        if (list.Count == 1){
+            return list[0];
+        }
+        int combinedLength = 0;
+        foreach(T[] array in list){
+            combinedLength += array.Length;
+        }
+        T[] combinedArray = new T[combinedLength];
+        int index = 0;
+        foreach(T[] array in list){
+            foreach (T element in array){
+                combinedArray[index] = element;
+                index++;
+            }
+        }
+
+        return combinedArray;
+
     }
 
     /// <summary>
@@ -248,6 +278,74 @@ public class Util
         foreach (Transform childT in obj.transform){
             AddCollidersRecursive(childT.gameObject);
         }
+    }
+
+    /// <summary>
+    /// Computes a point that can be assumed to be a resonable scene centre. Finds maximum and minimum x, y, z values and uses the average of these.
+    /// </summary>
+    /// <param name="initConfiguration">GameObject which is parent of all initial configuration game objects.</param>
+    /// <returns>A reasonable scene centre</returns>
+    public static Vector3 ComputeSceneCentreExtremeAvg(List<GameObject> initConfiguration){
+
+        Vector3[] vertices;
+        if (initConfiguration.Count == 1){
+            vertices = RecursiveGetVertices(initConfiguration[0].transform);
+        }
+        else{
+            List<Vector3[]> verticeList = new List<Vector3[]>();
+            foreach (GameObject obj in initConfiguration){
+                verticeList.Add(RecursiveGetVertices(obj.transform));
+            }
+            vertices = MergeListOfArrays(verticeList);
+        }
+
+        float maxX = float.MinValue;
+        float maxY = float.MinValue;
+        float maxZ = float.MinValue;
+        float minX = float.MaxValue;
+        float minY = float.MaxValue;
+        float minZ = float.MaxValue;
+
+        foreach(Vector3 vertex in vertices){
+            if (maxX < vertex.x) { maxX = vertex.x; }
+            if (maxY < vertex.y) { maxY = vertex.y; }
+            if (maxZ < vertex.x) { maxZ = vertex.z; }
+            if (minX > vertex.x) { minX = vertex.x; }
+            if (minY > vertex.y) { minY = vertex.y; }
+            if (minZ > vertex.z) { minZ = vertex.z; }
+        }
+        Vector3 centre = new Vector3((maxX + minX)/2, (maxY + minY)/2, (maxZ + minZ)/2);
+        Debug.Log("CENTRE: " + centre);
+        return new Vector3((maxX + minX)/2, (maxY + minY)/2, (maxZ + minZ)/2);
+    }
+
+    /// <summary>
+    /// Computes a point that can be assumed to be a resonable scene centre. Average of all vertices.
+    /// </summary>
+    /// <param name="initConfiguration">GameObject which is parent of all initial configuration game objects.</param>
+    /// <returns>A reasonable scene centre</returns>
+    public static Vector3 ComputeSceneCentreAvg(List<GameObject> initConfiguration){
+
+        Vector3[] vertices;
+        if (initConfiguration.Count == 1){
+            vertices = RecursiveGetVertices(initConfiguration[0].transform);
+        }
+        else{
+            List<Vector3[]> verticeList = new List<Vector3[]>();
+            foreach (GameObject obj in initConfiguration){
+                verticeList.Add(RecursiveGetVertices(obj.transform));
+            }
+            vertices = MergeListOfArrays(verticeList);
+        }
+
+        Vector3 mean = new Vector3(0f, 0f, 0f);
+
+        foreach(Vector3 vertex in vertices){
+            mean += vertex;
+        }
+        Vector3 centre = mean / vertices.Length;
+        Debug.Log("CENTRE: " + centre);
+        return centre;
     }
 
     /// <summary>
@@ -372,7 +470,7 @@ public class Util
         g.GetComponent<Collider>().enabled = false;
     }
 
-    public static void DrawLine(Vector3 start, Vector3 end, Color color, Material basicMat, float width=0.002f){
+    public static GameObject DrawLine(Vector3 start, Vector3 end, Color color, Material basicMat, float width=0.002f){
         GameObject myLine = new GameObject();
         myLine.transform.position = start;
         myLine.AddComponent<LineRenderer>();
@@ -389,6 +487,7 @@ public class Util
         lr.SetPosition(0, start);
         lr.SetPosition(1, end);
         // GameObject.Destroy(myLine, duration);
+        return myLine;
     } 
 
 }

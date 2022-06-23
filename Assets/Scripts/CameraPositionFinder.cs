@@ -7,11 +7,11 @@ public class CameraPositionFinder : MonoBehaviour
 {
     
     [SerializeField]
-    private List<GameObject> parts;
+    public List<GameObject> parts;
     [SerializeField]
-    private List<GameObject> initParts;
+    public List<GameObject> initParts;
     [SerializeField]
-    private Camera cam;
+    public Camera cam;
     [SerializeField]
     private Material basicMat;
     private Vector3 camInitPos;
@@ -21,52 +21,35 @@ public class CameraPositionFinder : MonoBehaviour
     private List<Vector3[]> vertexSamples;
     private List<Vector3> objectCentres;
     private Vector3 sceneCentre;
-    private int currentPart = -1;
+    public int currentPart {get; private set;} = -1;
     
     private UnityEngine.Color[] colArray;
 
     [SerializeField]
     private float outOfScopeAngle = 60f;
     [SerializeField]
-    private float minDist = 0.2f;
+    private float minDist = 0.5f;
     [SerializeField]
     private float maxDist = 2.5f;
     [SerializeField] 
-    private int sphereSampleSize = 200;
+    private int sphereSampleSize = 400;
     [SerializeField]
-    private int vertexSampleSize = 100;
+    private int vertexSampleSize = 50;
     [SerializeField]
     private float blockedVertexFrac = 0.4f;
     [SerializeField]
     private int blockedVertexIndex = 3; 
-    [SerializeField]
-    private float distWeight = 1f;
-    [SerializeField]
-    private float angleWeight = 1f;    
-    [SerializeField]
-    private float spreadWeight = 1f;
-    [SerializeField]
-    private float visibilityWeight = 1f;
-    [SerializeField]
-    private float distToObjWeight = 1f;
-    
-    [SerializeField]
-    private float reasonAngleWeight = 1f;
-
-    [SerializeField]
-    private float stabilityWeight = 1f;
 
     [SerializeField]
     private bool visualDebug = false;
 
     
     [SerializeField]
-    private float fovFactor = .75f;
+    private float fovFactor = .4f;
 
     private float[] individualMinDists;
 
     private Camera dummyCam; // Camera to use the camera class methods for computations, without chaning main camera. Might not be the smartest way to do it.
-
 
     // Next to fields determine the detail of the grid used to detect if adjusting camera position will cause clipping planes issue
     // If clipDetectionResolutionX = 4 and clipDetectionResolutionY = 3 -> 12 raycasts will be used to determine this.
@@ -96,15 +79,28 @@ public class CameraPositionFinder : MonoBehaviour
     private List<ScoreComputer> scoreComputers;
 
     [SerializeField]
-    private List<ScoreType> scoreTypes;
+    public List<ScoreType> scoreTypes;
     [SerializeField]
-    private List<float> scoreWeights;
+    public List<float> scoreWeights;
+
+    [SerializeField]
+    private List<string> toolSuffixes = new List<string>(){"(View)"};
+
+    [SerializeField]
+    private List<string> toolNames;
+
+    // private int[] sortedIndexes;
+    private float[] fullScores;
+
+    private GameObject line1 = null;
+    private GameObject line2 = null;
+
 
 
     void Start()
     {
-        if (this.scoreTypes.Count != this.scoreWeights.Count){
-            throw new Exception("The number of score types must be equal to the number of score weights: Types count: " + this.scoreTypes.Count + ", Weights count: " + this.scoreWeights.Count);
+        if (this.scoreTypes.Count != this.scoreWeights.Count || this.scoreTypes.Count == 0){
+            throw new Exception("The number of score types must be non-zero and equal to the number of score weights: Types count: " + this.scoreTypes.Count + ", Weights count: " + this.scoreWeights.Count);
         }
 
         this.scoreComputers = new List<ScoreComputer>(this.scoreTypes.Count);
@@ -113,24 +109,47 @@ public class CameraPositionFinder : MonoBehaviour
             scoreComputers.Add(Util.CreateScoreComputerFromScoreType(this.scoreTypes[i], this.scoreWeights[i]));
         }
 
+        if(this.cam == null){
+            throw new Exception("Field variable 'cam' is null. Please set it in unity editor");
+        }
+
         this.dummyCam = Instantiate(this.cam, new Vector3(), new Quaternion());
 
         this.dummyCam.enabled = false;
         this.dummyCam.GetComponent<AudioListener>().enabled = false;
+
+        if (this.basicMat == null){
+            this.basicMat = Resources.Load("baseMat") as Material;
+            if(this.basicMat == null){
+                throw new Exception("Field variable 'basicMat' is null and the script was unable to automatically load it. Please set it in unity editor");
+            }
+        }
         
+        if(this.parts.Count == 0){
+            throw new Exception("Field variable 'parts' is an empty List. It must contain objects. Consider using 'SceneSetupUtil' to do this.");
+        }
+
         foreach (GameObject part in this.parts){
             part.SetActive(false);
         }
 
+        // Fix this ugly hardcoded stuff
         if (this.humanUnreasonableAngles == null){
             this.humanUnreasonableAngles = new List<(Vector3, float, float)>();
             this.humanUnreasonableAngles.Add((Vector3.up, 30f, 60f));
         }
 
         this.directions = Util.FibSphereSample(n: this.sphereSampleSize, impossibleAngles: this.humanUnreasonableAngles);
-        // Debug.Log(this.directions.Count);
         this.directionsReduced = Util.FibSphereSample(n: 15); // TODO: Fix Hardcoding
         (this.vertexSamples, this.objectCentres, this.sceneCentre) = Util.SampleVerticePoints(this.parts, samples: vertexSampleSize);
+        if(this.initParts.Count == 0){
+            Debug.LogWarning("Field variable 'initParts' is an empty List. This should probably not be the case. Have you forgotten assigning in editor?");
+            this.sceneCentre = new Vector3(0f, 0f, 0f);
+        }
+        else{
+            this.sceneCentre = Util.ComputeSceneCentreAvg(this.initParts);
+        }
+
         this.camInitPos = cam.transform.position;
         this.camInitRot = cam.transform.rotation;
         this.colArray = new UnityEngine.Color[8] { UnityEngine.Color.black, 
@@ -146,13 +165,12 @@ public class CameraPositionFinder : MonoBehaviour
         for (int i = 0; i < this.parts.Count; i++){
             float maxVertexDist = 0f;
             foreach(Vector3 vertex in this.vertexSamples[i]){
-                // float thisVertexDist = (this.parts[i].transform.position - vertex).magnitude;
                 float thisVertexDist = (this.objectCentres[i] - vertex).magnitude;
                 if (thisVertexDist > maxVertexDist){
                     maxVertexDist = thisVertexDist;
                 }
             }
-            Debug.Log(this.cam.nearClipPlane.ToString() + " " + maxVertexDist.ToString() + this.minDist.ToString() + " " + Mathf.Max((this.cam.nearClipPlane + maxVertexDist) * 1.2f, this.minDist).ToString());
+            // Debug.Log(this.cam.nearClipPlane.ToString() + " " + maxVertexDist.ToString() + this.minDist.ToString() + " " + Mathf.Max((this.cam.nearClipPlane + maxVertexDist) * 1.2f, this.minDist).ToString());
             this.individualMinDists[i] = Mathf.Max((this.cam.nearClipPlane + maxVertexDist) * 1.2f, this.minDist);
             Util.AddCollidersRecursive(this.parts[i]);
         }
@@ -170,34 +188,105 @@ public class CameraPositionFinder : MonoBehaviour
     }
 
     /// <summary>
-    /// Called when next object should be rought into focus. Updated fields, and calls main algorithm to find new camera position
+    /// Called when next object should be brought into focus. Updates field variables, and calls main algorithm to find new camera position.
+    /// The method "FindCamPos" is the primary thing at work here. The rest is simply changing the scene.
     /// </summary>
-    public void NextInstruction(){
+    public Vector3 NextInstruction(bool moveCam=true){
         if (currentPart < parts.Count -1){
             currentPart++;
             
-            cam.transform.position = this.FindCamPos();
+            this.CheckAndRemoveLastIfTool();
+            Vector3 camPos = this.FindCamPos();
+
 
             parts[currentPart].SetActive(true);  
             Util.RecursiveChangeColor(parts[currentPart],  UnityEngine.Color.black);
 
-            cam.transform.LookAt(this.objectCentres[currentPart]);
+            if (moveCam){
+                cam.transform.position = camPos;
+                cam.transform.LookAt(this.objectCentres[currentPart]);
+            }
+
             if (currentPart > 0){
                 Util.RecursiveChangeColor(parts[currentPart - 1],  UnityEngine.Color.grey);
             }
+            // Util.DrawLine(this.cam.transform.position, this.sceneCentre, UnityEngine.Color.blue, this.basicMat);
+            if(currentPart == 0){
+                Util.CreateSphere(this.sceneCentre, UnityEngine.Color.magenta, scale: 0.2f);
+            }
+            return camPos;
 
         } else {
             Util.RecursiveChangeColor(parts[currentPart],  UnityEngine.Color.grey);
 
-            this.Reset();
+            this.ResetScene();
             currentPart = -1;
+            return new Vector3(this.cam.transform.position.x, this.cam.transform.position.y, this.cam.transform.position.z);
         }
+
+
+    }
+
+    /// <summary>
+    /// Called after a new object has been brought into focus. Checks if last object was a tool and needs to be made inactive again
+    /// </summary>
+    public void CheckAndRemoveLastIfTool(){
+        int lastToolNum = this.currentPart - 1;
+        if (lastToolNum < 0){
+            return;
+        }
+        bool isTool = this.RecursivelyCheckIfTool(this.parts[lastToolNum]);
+        if (isTool){
+            this.parts[lastToolNum].SetActive(false);
+        }
+    }
+
+    /// <summary>
+    /// Returns the centre of a given part. Useful for other scripts.
+    /// </summary>
+    /// <param name="partNum">Index of the part number in the 'parts' field</param>
+    /// <returns>Centre of the object in question</returns>
+    public Vector3 GetPartCentre(int partNum){
+        if (partNum < 0){
+            return new Vector3(0, 0, 0);
+        }
+        return this.objectCentres[partNum];
+    }
+
+    /// <summary>
+    /// Recursively checks if last object was a tool  (based on object name and field variables 'toolSuffixes' and 'toolNames')
+    /// </summary>
+    /// <param name="obj">The GameObject we wish to know if is a tool</param>
+    /// <returns>True if GameObject is considered a tool</returns>
+    public bool RecursivelyCheckIfTool(GameObject obj){
+        string name = obj.name;
+        foreach(string suffix in this.toolSuffixes){
+            if (name.EndsWith(suffix)){
+                obj.SetActive(false);
+                return true;
+            }
+        }
+        foreach(string toolName in this.toolNames){
+            if (name == toolName){
+                obj.SetActive(false);
+                return true;
+            }
+        }
+        
+        foreach(Transform child in obj.transform){
+            bool isTool = RecursivelyCheckIfTool(child.gameObject);
+            if (isTool){
+                return true;
+            }
+        }
+        return false;
+        
     }
 
     /// <summary>
     /// Resets scene view into original setup, with only initial structure activated.
     /// </summary>
-    private void Reset(){
+    private void ResetScene(){
         foreach (GameObject part in parts){
             part.SetActive(false);
         }
@@ -215,6 +304,12 @@ public class CameraPositionFinder : MonoBehaviour
             cam.transform.position = this.lastCamPositions[this.currentPosIndex];
             cam.transform.LookAt(this.objectCentres[currentPart]);
             this.scoreText = this.BuildScoreString(this.lastScores, this.currentPosIndex);
+
+            if (this.line1 != null) { Destroy(this.line1); }
+            if (this.line2 != null) { Destroy(this.line2); }
+            this.line1 = Util.DrawLine(this.cam.transform.position, this.sceneCentre, UnityEngine.Color.blue, this.basicMat);
+            this.line2 = Util.DrawLine(this.cam.transform.position, this.objectCentres[currentPart], UnityEngine.Color.blue, this.basicMat);
+            Debug.Log(Vector3.Angle(this.sceneCentre - this.cam.transform.position, this.objectCentres[currentPart] - this.cam.transform.position));
         }
     }
 
@@ -228,6 +323,12 @@ public class CameraPositionFinder : MonoBehaviour
             cam.transform.position = this.lastCamPositions[this.currentPosIndex];
             cam.transform.LookAt(this.objectCentres[currentPart]);
             this.scoreText = this.BuildScoreString(this.lastScores, this.currentPosIndex);
+
+            if (this.line1 != null) { Destroy(this.line1); }
+            if (this.line2 != null) { Destroy(this.line2); }
+            this.line1 = Util.DrawLine(this.cam.transform.position, this.sceneCentre, UnityEngine.Color.blue, this.basicMat);
+            this.line2 = Util.DrawLine(this.cam.transform.position, this.objectCentres[currentPart], UnityEngine.Color.blue, this.basicMat);
+            Debug.Log(Vector3.Angle(this.sceneCentre - this.cam.transform.position, this.objectCentres[currentPart] - this.cam.transform.position));
         }
     }
 
@@ -235,10 +336,10 @@ public class CameraPositionFinder : MonoBehaviour
     /// <summary>
     /// Main algorithm for camera position finding.
     /// 
-    /// Uses raycasts from and to the centre of the object in question to find initial camera position proposals. 
+    /// Uses raycasts from and to the centre of the object in order to find initial camera position proposals. 
     /// Then uses more raycast to approximate how large a portion of the object is visible, and discards the worst fraction of the found proposals.
     /// Then adjusts the distance between camera and object, to fill up most of the camera view, without causing clipping plane isues
-    /// Finnaly scores each position based on "ScoreComputer" implementations to find the best position
+    /// Finnaly scores each position based on "ScoreComputer" implementations to find the best position (some of these scores are computed during previous steps for efficiency reasons)
     /// </summary>
     /// <returns>Best camera position found, or exisitng camera position, if no valid positions can be found</returns>
     private Vector3 FindCamPos(){
@@ -253,15 +354,38 @@ public class CameraPositionFinder : MonoBehaviour
         (Vector3[] positionsArray, int[]  collisions) = this.PrunePositionProposals(positions);
         
         float[] fullScores;
-        (fullScores, positionsArray) = this.ComputePosScores(positionsArray, collisions);
+        float[,] scores;
+        (fullScores, positionsArray, scores) = this.ComputePosScores(positionsArray, collisions);
 
-        Array.Sort(fullScores, positionsArray);
+        int posNum = positionsArray.Length;
+        int[] indexArray = new int[posNum];
+        for (int i = 0; i < posNum; i++){
+            indexArray[i] = i;
+        }
 
-        this.lastCamPositions = positionsArray;
+        Array.Sort(fullScores, indexArray); // sorting a [0, 1, 2, 3, ..] array based on the computed scores. This allows us to sort the positions and the individual score components without actually having to do several sorts.
+        this.fullScores = fullScores;
+
+        Vector3[] sortedPositionsArray = new Vector3[positionsArray.Length];
+        for (int i = 0; i < positionsArray.Length; i++){ 
+            sortedPositionsArray[i] = positionsArray[indexArray[i]]; // sorting the found positions
+        }
+
+        float[,] sortedScores = new float[scores.GetLength(0), scores.GetLength(1)];
+        for (int i = 0; i < scores.GetLength(0); i++){
+            for (int j = 0; j < scores.GetLength(1); j++){
+                sortedScores[i, j] = scores[i, indexArray[j]]; // sorting the individual score components. This is only necessary for debugging/checking if scoring makes sense.
+            }
+        }
+
+        this.lastScores = sortedScores;  // This is only needed for debugging scoring values.
+        this.lastCamPositions = sortedPositionsArray;
         this.currentPosIndex = 0;
 
+        this.scoreText = this.BuildScoreString(this.lastScores, this.currentPosIndex); // this is also only neeeded for scoring debugging.
+
         if (positions.Count > 0 ) {
-            return positionsArray[0];
+            return sortedPositionsArray[0];
         } else {
             // TODO: Consider doing a more detailed pass to attempt to find useable camera positions
             Debug.Log("No Positions found");
@@ -293,7 +417,8 @@ public class CameraPositionFinder : MonoBehaviour
     }
 
     /// <summary>
-    /// Examines if there is a valid camera position, in a given direction form the object in question
+    /// Examines if there is a valid camera position, in a given direction form the object in question.
+    /// Returns said position if found.
     /// </summary>
     /// <param name="objectPos">Position of the object that needs to be viewed</param>
     /// <param name="direction">The direction in which we wish to know if there is a valid camera position</param>
@@ -414,26 +539,28 @@ public class CameraPositionFinder : MonoBehaviour
 
     /// <summary>
     /// Computes scores for each of the found potential camera position. Uses a List of implementations of ScoreComputer for this. Adjusts distance of positions
-    /// in this step due to overlap between distance computations and certain score computations.
+    /// in this step due to overlap between distance computations and certain score computations (i.e. it is more efficient to do here).
     /// </summary>
     /// <param name="positionsArray">Array of positions to be assigned a score</param>
     /// <param name="collisions">Number of collisions from earlier pruning step. Needed for VisibilityScore </param>
-    /// <returns>Tuple containing List of scores and a list of distace adjusted positions</returns>
+    /// <returns>Tuple containing List of scores,a list of distace adjusted positions and a 2d array of all unweighted scores</returns>
     /// <exception cref="System.NotImplementedException"></exception>
-    private (float[], Vector3[]) ComputePosScores(Vector3[] positionsArray, int[] collisions){
+    private (float[], Vector3[], float[,]) ComputePosScores(Vector3[] positionsArray, int[] collisions){
 
         Vector3 objectPos = this.objectCentres[currentPart];
         Vector3[] vertices = this.vertexSamples[currentPart];
         int prunedPosCount = positionsArray.Length;
 
         int scoreCount = this.scoreWeights.Count;
-        if(scoreCount <= 0){
+        if(scoreCount < 1){
             throw new System.NotImplementedException("Missing implementation for handling no scoring system (would that ever be relevant though?)");
         }
 
         float[,] scores = new float[scoreCount, prunedPosCount];
 
         (Vector3[] newPositions, float[] distanceToObjectScores) = AdjustDistances(positionsArray, objectPos, vertices, this.individualMinDists[this.currentPart]);
+
+        Debug.Log(distanceToObjectScores);
 
         DataForScoreComputation data = new DataForScoreComputation(objectPos,
                                                                    this.sceneCentre,
@@ -447,24 +574,27 @@ public class CameraPositionFinder : MonoBehaviour
 
         for(int i = 0; i < scoreCount; i++){
             for (int j = 0; j < prunedPosCount; j++){
-                scores[i, j] = this.scoreComputers[i].ComputeScore(objectPos, data, j);
+                // scores[i, j] = this.scoreComputers[i].ComputeScore(objectPos, data, j);
+                scores[i, j] = this.scoreComputers[i].ComputeScore(newPositions[j], data, j);
             }
-            if (this.scoreComputers[i].needsNormalization){
+            if (this.scoreComputers[i].NeedsNormalization()){
                 Util.NormalizeArrayRow(scores, i);
             }
+            // Debug.Log(this.scoreComputers[i].NeedsNormalization());
         }
 
         float[] fullScores = new float[prunedPosCount];
 
-        for(int i = 0; i < scoreCount; i++){
-            for (int j = 0; j < prunedPosCount; j++){
-                fullScores[j] += scores[i, j] * this.scoreComputers[i].weight;
+        for (int j = 0; j < prunedPosCount; j++){
+            fullScores[j] = 0f;
+            for(int i = 0; i < scoreCount; i++){
+                fullScores[j] += (scores[i, j] * this.scoreComputers[i].weight);
             }
         }
 
-        this.lastScores = scores;
+        // this.lastScores = scores;
 
-        return (fullScores, newPositions);
+        return (fullScores, newPositions, scores);
     }
 
 
@@ -569,9 +699,11 @@ public class CameraPositionFinder : MonoBehaviour
 
         if (optimalDist < cam.nearClipPlane){
             optimalDist = cam.nearClipPlane * 1.2f;
+            // Debug.Log("Optimal dist smaller than clip plane");
         }
         if (optimalDist < objMinDist){
             optimalDist = objMinDist;
+            // Debug.Log("Optimal dist smaller than min dist");
         }
 
         Vector3 camToCentre = objCentre - camPos;
@@ -599,8 +731,8 @@ public class CameraPositionFinder : MonoBehaviour
             Util.DrawLine(camPos, botRight, UnityEngine.Color.yellow, this.basicMat);
         }
 
-        float minDist = (camPos - objCentre).magnitude - optimalDist;
-        float maxRayDist = minDist;
+        float bestFoundDist = (camPos - objCentre).magnitude - optimalDist;
+        float maxRayDist = bestFoundDist;
 
         RaycastHit hitInfo;
         bool hit;
@@ -612,9 +744,9 @@ public class CameraPositionFinder : MonoBehaviour
                 hit = Physics.Raycast(rayStartPos, direction, out hitInfo, maxRayDist);
                 if (hit) {
                     float hitDistAdjusted = hitInfo.distance - .5f * dummyCam.nearClipPlane;
-                    if (hitDistAdjusted < minDist) {
+                    if (hitDistAdjusted < bestFoundDist) {
                         // Debug.Log("minDist updated " + minDist.ToString() + " -> " + (hitDistAdjusted).ToString());
-                        minDist = hitDistAdjusted;
+                        bestFoundDist = hitDistAdjusted;
                     }
                 }
                 if (draw){
@@ -627,17 +759,23 @@ public class CameraPositionFinder : MonoBehaviour
 
         float optimalDistReverse = (camPos - objCentre).magnitude - optimalDist;
 
-        float score = (optimalDistReverse - minDist)/optimalDistReverse;
+        // float score = (optimalDistReverse - bestFoundDist)/optimalDistReverse;
+        float score = (optimalDistReverse - bestFoundDist)/(camPos - objCentre).magnitude; // TODO: change (camPos - objCenter).magnitude to be computed just once, instead of for every cam pos (probably have to add as optional param for method)
 
-        return (camPos + minDist * direction, score);
+        // Debug.Log(optimalDistReverse.ToString() + " " + bestFoundDist.ToString() + "  " + optimalDist.ToString() + " " + score.ToString());
+        // Debug.Log(optimalDist.ToString() + ", " +  optimalDistReverse + ", " +  bestFoundDist + ", " +  score);
+
+        return (camPos + bestFoundDist * direction, score);
     }
 
 
     // TODO: Move somewhere else
     public string BuildScoreString(float[,] scores, int index){
 
-        string text = "";
+        string text = "Full Score: " + this.fullScores[index].ToString() + "\n";
         int numScores = scores.GetLength(0);
+
+        // int fixedIndex = this.sortedIndexes[index];
 
         for(int i = 0; i < numScores; i++){
             text += this.scoreComputers[i].GetScoreName() + ": " + scores[i, index].ToString() + "\n";
@@ -648,7 +786,6 @@ public class CameraPositionFinder : MonoBehaviour
         text +=  "Object Pos: " + this.objectCentres[currentPart].ToString() + "\n";
         text +=  "Cam Pos: " + this.lastCamPositions[index].ToString() + "\n";
         text +=  "Cam Vector: " + (this.objectCentres[currentPart] - this.lastCamPositions[index] ).ToString() + "\n";
-        text += "FIX: NOT CONSIDERING SORTING DONE AFTERWARDS -> This is all wrong";
 
         return text;
     }

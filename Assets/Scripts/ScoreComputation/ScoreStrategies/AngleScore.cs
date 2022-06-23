@@ -14,10 +14,18 @@ public class AngleScore : ScoreComputer {
     // public float ComputeScore(CameraPositionFinder posFinder, DataForScoreComputation data){
     override public float ComputeScore(Vector3 position, DataForScoreComputation data, int directionIndex){
         
-        float score = Vector3.Angle(data.objectPos - position, data.sceneCentre - position) / 180f; // TODO: Fix hardcoding
-        
+        // float score = Vector3.Angle(data.objectPos - position, data.sceneCentre - position) / 180f; // TODO: Fix hardcoding
+        float angle = Vector3.Angle(data.objectPos - position, data.sceneCentre - position);
+        float score = angle > 20f ? (angle - 20) / 180f : 0f;
+        // float anglePis = angle / 180f;
+        // Debug.Log(score.ToString() + " " +  angle + " ");
+
         return score;
 
+    }
+
+    public override bool NeedsNormalization(){
+        return true;
     }
 
 

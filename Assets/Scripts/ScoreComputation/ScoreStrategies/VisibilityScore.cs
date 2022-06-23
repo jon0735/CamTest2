@@ -3,7 +3,7 @@ using UnityEngine;
 /// <summary>
 /// Scoring Strategy that prefers positions from which a larger part of the object is visible.
 /// For efficiency reasons these computations/raycasts are done in a CameraPositionFinder.PrunePositions() 
-/// and the found values are simply passed to this class via the data variable
+/// and the found values are simply passed to this class via the data parameter.
 /// </summary>
 
 public class VisibilityScore: ScoreComputer {
@@ -14,4 +14,7 @@ public class VisibilityScore: ScoreComputer {
         return data.collisions[directionIndex];
     }
 
+    public override bool NeedsNormalization(){
+        return true;
+    }
 }

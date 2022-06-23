@@ -13,7 +13,9 @@ public class SpreadScore : ScoreComputer {
     {
         float avgSpred = 0f;
         Vector3 camToObj = data.objectPos - position;
+        // Debug.Log(position.ToString() + ", " + data.objectPos.ToString());
         float dist = camToObj.magnitude;
+        // Debug.Log(dist);
         Vector3 scaledCamPos = position + (camToObj * (1 - 1/dist)); // Distance to object will interfere with avg angles. Use this scaled camPos to avoid that.
         for(int j = 0; j < data.vertexSamples.Length; j++){ 
             Vector3 test = position;
@@ -21,8 +23,14 @@ public class SpreadScore : ScoreComputer {
             avgSpred += Vector3.Angle(data.objectPos - scaledCamPos, data.vertexSamples[j] - scaledCamPos);
         }
         avgSpred = avgSpred / data.vertexSamples.Length;
-        
+
+        // Debug.Log(data.vertexSamples.Length);
+
         return (1f - avgSpred / 60f); 
+    }
+
+    public override bool NeedsNormalization(){
+        return true;
     }
 
 }

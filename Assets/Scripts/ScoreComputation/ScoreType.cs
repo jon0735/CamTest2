@@ -6,7 +6,7 @@ using System;
 
 
 /// <summary>
-/// Enums corresponding to types of scores. Useful for allowing score types to be defined in unity editor.
+/// Enums corresponding to types of scores. Needed for allowing score types to be defined in unity editor. (TODO: Check if there is a better way of doing this)
 /// </summary>
 
 [Serializable]

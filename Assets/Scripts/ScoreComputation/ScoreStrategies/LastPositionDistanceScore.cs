@@ -11,4 +11,8 @@ public class LastPositionDistanceScore: ScoreComputer {
         return Vector3.Distance(position, data.cam.transform.position) / (2f * data.maxDist);
     }
 
+    public override bool NeedsNormalization(){
+        return true;
+    }
+
 }
