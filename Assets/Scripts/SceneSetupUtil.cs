@@ -248,7 +248,7 @@ public class SceneSetupUtil : MonoBehaviour
             return;
         }
         types.Add(ScoreType.Angle);
-        weights.Add(0f);
+        weights.Add(1f);
 
         types.Add(ScoreType.DistanceToObject);
         weights.Add(1f);

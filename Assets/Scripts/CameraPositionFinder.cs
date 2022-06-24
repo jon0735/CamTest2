@@ -84,7 +84,7 @@ public class CameraPositionFinder : MonoBehaviour
     public List<float> scoreWeights;
 
     [SerializeField]
-    private List<string> toolSuffixes = new List<string>(){"(View)"};
+    private List<string> toolSuffixes = new List<string>(){"(View)", "HAMMER"}; // Any gameobject ending with these will be considered a tool and removed after being viewed
 
     [SerializeField]
     private List<string> toolNames;
@@ -133,7 +133,7 @@ public class CameraPositionFinder : MonoBehaviour
             part.SetActive(false);
         }
 
-        // Fix this ugly hardcoded stuff
+        // TODO: Fix this ugly hardcoded stuff (i.e. find a good easy way for the user to define this)
         if (this.humanUnreasonableAngles == null){
             this.humanUnreasonableAngles = new List<(Vector3, float, float)>();
             this.humanUnreasonableAngles.Add((Vector3.up, 30f, 60f));
@@ -211,9 +211,9 @@ public class CameraPositionFinder : MonoBehaviour
                 Util.RecursiveChangeColor(parts[currentPart - 1],  UnityEngine.Color.grey);
             }
             // Util.DrawLine(this.cam.transform.position, this.sceneCentre, UnityEngine.Color.blue, this.basicMat);
-            if(currentPart == 0){
-                Util.CreateSphere(this.sceneCentre, UnityEngine.Color.magenta, scale: 0.2f);
-            }
+            // if(currentPart == 0){
+            //     Util.CreateSphere(this.sceneCentre, UnityEngine.Color.magenta, scale: 0.2f);
+            // }
             return camPos;
 
         } else {
@@ -239,18 +239,6 @@ public class CameraPositionFinder : MonoBehaviour
         if (isTool){
             this.parts[lastToolNum].SetActive(false);
         }
-    }
-
-    /// <summary>
-    /// Returns the centre of a given part. Useful for other scripts.
-    /// </summary>
-    /// <param name="partNum">Index of the part number in the 'parts' field</param>
-    /// <returns>Centre of the object in question</returns>
-    public Vector3 GetPartCentre(int partNum){
-        if (partNum < 0){
-            return new Vector3(0, 0, 0);
-        }
-        return this.objectCentres[partNum];
     }
 
     /// <summary>
@@ -281,6 +269,18 @@ public class CameraPositionFinder : MonoBehaviour
         }
         return false;
         
+    }
+
+    /// <summary>
+    /// Returns the centre of a given part. Useful for other scripts.
+    /// </summary>
+    /// <param name="partNum">Index of the part number in the 'parts' field</param>
+    /// <returns>Centre of the object in question</returns>
+    public Vector3 GetPartCentre(int partNum){
+        if (partNum < 0){
+            return new Vector3(0, 0, 0);
+        }
+        return this.objectCentres[partNum];
     }
 
     /// <summary>
